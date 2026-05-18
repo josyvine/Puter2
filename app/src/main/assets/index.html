@@ -467,11 +467,13 @@
             if (puter.auth.isSignedIn()) {
                 console.log("Signing Out...");
                 await puter.auth.signOut();
-                localStorage.removeItem('puter_token'); // Clear local injection
+                // SECURE ORIGIN: localStorage clearing is handled naturally by the SDK now.
+                // We keep the toast/notify logic for UI consistency.
                 appendChat("System", "You have been signed out.");
                 updateAuthUI();
             } else {
                 console.log("Triggering Puter SDK SignIn popup...");
+                // SDK will open the popup window handled by MyWebChromeClient.onCreateWindow
                 await puter.auth.signIn(); 
             }
         } catch (error) {
@@ -481,24 +483,25 @@
     }
 
     /**
-     * DIAGNOSTIC: Added session injection from Native side to fix the isolation bug.
-     * This manually sets the token in the main WebView before Puter.js checks for it.
+     * SECURE ORIGIN UPDATE: Manual injection (syncAuthSession) is no longer required
+     * because the virtual HTTPS origin shares state naturally with the login popup.
+     * We keep the function name to maintain existing logic but update it to check state.
      */
     function syncAuthSession() {
+        console.log("DIAGNOSTIC: Origin is " + window.location.origin);
         if (window.AndroidInterface && window.AndroidInterface.getSavedAuthToken) {
+            // We verify if the native layer has a token, but we let the SDK recover session
+            // from the browser's native cookies/storage for better reliability.
             const token = window.AndroidInterface.getSavedAuthToken();
-            if (token && token !== "null" && token !== "") {
-                console.log("DIAGNOSTIC: Injecting Native Token into LocalStorage.");
-                localStorage.setItem('puter_token', token);
-            } else {
-                console.warn("DIAGNOSTIC: No Native Token found to inject.");
+            if (token) {
+                console.log("DIAGNOSTIC: Native record found. Allowing SDK to restore session.");
             }
         }
     }
 
     /**
-     * UPDATED: Added a status guard (lastAuthStatus) to prevent the "UI Blinking" reload loop.
-     * Also logs status to the diagnostic console.
+     * UPDATED: Sync UI state with Puter SDK truth.
+     * Logic guard (lastAuthStatus) remains to prevent recursive reload triggers.
      */
     function updateAuthUI() {
       if (typeof puter !== 'undefined' && window.AndroidInterface) {
@@ -511,7 +514,7 @@
 
         document.getElementById('authOption').textContent = logged ? "Sign Out" : "Sign In";
         
-        // Notify Java side to update its internal SharedPreferences
+        // Notify Java side to update its internal SharedPreferences for Splash/Fragment state
         window.AndroidInterface.onAuthStatusChanged(logged);
       }
     }
@@ -552,7 +555,7 @@
     window.onload = () => {
         console.log("Page Lifecycle: ONLOAD");
         
-        // 1. Sync session from Native before SDK initializes its internal memory
+        // 1. Check session context on Secure Origin
         syncAuthSession();
 
         // 2. Load UI elements
@@ -562,8 +565,8 @@
         if (typeof puter !== 'undefined') {
             console.log("Puter SDK detected. Waiting for ready...");
             puter.ready(() => {
-                console.log("Puter SDK is READY. Checking Final Session State.");
-                // Ensure auth UI is called only once the SDK has fully initialized its session
+                console.log("Puter SDK is READY. Validating Secure Session.");
+                // Ensure auth UI is called once the SDK has verified the origin's session
                 updateAuthUI();
             });
         } else {
