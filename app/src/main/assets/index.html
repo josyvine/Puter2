@@ -11,11 +11,11 @@
   <style>
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 100vh; width: 100vw; overflow-x: hidden; }
-    
+
     header { position: fixed; top: 0; left: 0; width: 100%; height: 60px; background: #333; color: #fff; padding: 15px; display: flex; justify-content: space-between; align-items: center; z-index: 100; }
     h2 { margin: 0; font-size: 1.3em; }
     .menu-button { cursor: pointer; font-size: 28px; padding: 5px; }
-    
+
     .dropdown { position: absolute; top: 60px; right: 10px; background: #fff; color: #333; border: 1px solid #ccc; z-index: 200; padding: 5px 0; display: none; width: 240px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); border-radius: 8px; }
     .dropdown.show { display: block; }
     .dropdown li { list-style: none; margin: 0; cursor: pointer; padding: 12px 20px; border-bottom: 1px solid #f0f0f0; font-size: 16px; }
@@ -37,7 +37,7 @@
     /* --- FIXED SEARCH BAR CSS --- */
     .chat-controls { position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 10px; z-index: 110; border-top: 1px solid #ddd; }
     .search-bar-container { display: flex; align-items: center; width: 100%; max-width: 600px; border-radius: 28px; background-color: white; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15); padding: 6px 10px; position: relative; min-height: 56px; border: 1px solid #dadce0; margin: 0 auto; }
-    
+
     .search-bar-container input[type="text"] { 
         flex-grow: 1; 
         border: none; 
@@ -50,7 +50,7 @@
         padding-right: 90px;  
         height: 44px; 
     }
-    
+
     /* Rules for all buttons in the bar */
     .search-bar-container .action-button { 
         background: none; 
@@ -69,11 +69,11 @@
         transform: translateY(-50%); 
         z-index: 10; 
     }
-    
+
     .upload-btn-cls { left: 6px; }
     .mic-btn-cls { right: 48px; }
     .voice-agent-btn-cls { right: 6px; color: #1a73e8; }
-    
+
     /* FIX: Specificity adjustment to make the Send button visible */
     .search-bar-container .send-btn-cls { 
         right: 6px; 
@@ -90,7 +90,7 @@
     .search-bar-container.has-text .voice-agent-btn-cls { 
         display: none !important; 
     }
-    
+
     .search-bar-container.has-text .send-btn-cls { 
         display: flex !important; 
     }
@@ -137,14 +137,14 @@
   <div class="chat-controls">
     <img id="imagePreview" src="" onclick="clearImage()" title="Tap to remove" />
     <div class="search-bar-container" id="puterSearchBarContainer">
-      
+
       <!-- 1. Upload Icon: Extreme Left -->
       <button class="action-button upload-btn-cls" onclick="window.AndroidInterface.openFilePicker()">
         <span class="material-symbols-outlined">add</span>
       </button>
-      
+
       <input type="text" id="puterChatInput" placeholder="Ask Puter..." oninput="handleInput()" autocomplete="off">
-      
+
       <!-- 2. Microphone: Right side, left of TTS -->
       <button class="action-button mic-btn-cls" onclick="window.AndroidInterface.startListening()">
         <span class="material-symbols-outlined">mic</span>
@@ -154,7 +154,7 @@
       <button class="action-button voice-agent-btn-cls" onclick="window.AndroidInterface.startVoiceAgent()">
         <span class="material-symbols-outlined">auto_awesome</span>
       </button>
-      
+
       <!-- 4. Send Button: Replaces Mic and TTS when text is present -->
       <button class="action-button send-btn-cls" id="sendBtn" onclick="sendMessage()">
         <span class="material-symbols-outlined">send</span>
@@ -228,12 +228,20 @@
 
     // --- REBUILT LOGIC ---
 
-    // 1. Load Categorized Models from NATIVE BRIDGE
+    // 1. Load Categorized Models from NATIVE BRIDGE (Uncoupled from SDK ready state)
     function loadModels() {
       try {
-        const jsonString = window.AndroidInterface.getLocalJson("models.json");
-        const providers = JSON.parse(jsonString);
+        if (!window.AndroidInterface) {
+            throw new Error("AndroidInterface is not available.");
+        }
         
+        const jsonString = window.AndroidInterface.getLocalJson("models.json");
+        if (!jsonString || jsonString === "{}" || jsonString.trim() === "") {
+            throw new Error("Native bridge returned empty or invalid string.");
+        }
+
+        const providers = JSON.parse(jsonString);
+
         let allModels = [];
         for (const providerKey in providers) {
             const providerModels = providers[providerKey].map(model => ({ ...model, provider: providerKey }));
@@ -254,7 +262,7 @@
         for (const [key, label] of Object.entries(catMap)) {
           const group = document.createElement('optgroup');
           group.label = label;
-          
+
           let filtered = [];
           if (key === 'all') {
             filtered = [...allModels].sort((a, b) => a.name.localeCompare(b.name));
@@ -274,13 +282,13 @@
         }
       } catch(e) { 
           console.error("Model load via bridge failed:", e); 
-          document.getElementById('puterModelSelect').innerHTML = '<option>Error loading models</option>';
+          document.getElementById('puterModelSelect').innerHTML = `<option>Error: ${e.message}</option>`;
       }
     }
 
     // 2. Main Chat Logic with AUTH GUARD
     async function sendMessage() {
-      if (!puter.auth.isSignedIn()) {
+      if (typeof puter === 'undefined' || !puter.auth.isSignedIn()) {
         alert("Please sign in to start chatting with Puter.");
         handleAuthAction();
         return;
@@ -304,9 +312,9 @@
         const resp = await puter.ai.chat(content, {model: model, system_message: customInstruction});
         const botMsg = resp.message.content;
         appendChat("Bot", botMsg);
-        
+
         if(window.AndroidInterface) window.AndroidInterface.speak(botMsg);
-        
+
         clearImage();
       } catch(e) { 
         appendChat("System", "Error: " + e.message); 
@@ -339,27 +347,29 @@
     // 4. SDK-DRIVEN AUTHENTICATION
     async function handleAuthAction() {
         try {
+            if (typeof puter === 'undefined') {
+                alert("Puter SDK is loading, please wait a moment.");
+                return;
+            }
             if (puter.auth.isSignedIn()) {
                 await puter.auth.signOut();
                 appendChat("System", "You have been signed out.");
+                updateAuthUI();
             } else {
-                await puter.auth.signIn();
-                // After successful sign-in, the page will reload,
-                // and updateAuthUI() will be called on the new page load.
+                // This triggers the popup handled by MyWebChromeClient
+                await puter.auth.signIn(); 
             }
         } catch (error) {
             console.error("Auth action failed:", error);
-            appendChat("System", "Authentication failed: " + error.message);
+            appendChat("System", "Authentication failed. Try again.");
         }
-        // Update UI immediately after action completes
-        updateAuthUI();
     }
 
     function updateAuthUI() {
       if (typeof puter !== 'undefined' && window.AndroidInterface) {
         const logged = puter.auth.isSignedIn();
         document.getElementById('authOption').textContent = logged ? "Sign Out" : "Sign In";
-        
+
         // Sync the state back to the native layer
         window.AndroidInterface.onAuthStatusChanged(logged);
       }
@@ -395,14 +405,19 @@
       document.getElementById('imagePreview').style.display = 'none';
     }
 
-    // Initialize after Puter SDK is ready
+    // Execute immediately on load
     window.onload = () => {
-        puter.ready(() => {
-            console.log("Puter SDK is ready.");
-            loadModels();
-            document.getElementById('customInput').value = customInstruction;
-            updateAuthUI();
-        });
+        // 1. Load models instantly via Native Bridge
+        loadModels();
+        document.getElementById('customInput').value = customInstruction;
+        
+        // 2. Wait for SDK only for Auth Updates
+        if (typeof puter !== 'undefined') {
+            puter.ready(() => {
+                console.log("Puter SDK is ready.");
+                updateAuthUI();
+            });
+        }
     };
   </script>
 </body>
