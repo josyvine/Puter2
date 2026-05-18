@@ -29,8 +29,8 @@ public class HomeFragment extends Fragment {
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
-        // Initialize ViewBinding for the fragment layout
-        binding = FragmentHomeBinding.binding = FragmentHomeBinding.inflate(inflater, container, false);
+        // FIXED: Removed the extra ".binding =" typo that caused the compiler crash
+        binding = FragmentHomeBinding.inflate(inflater, container, false);
         return binding.getRoot();
     }
 
@@ -49,7 +49,7 @@ public class HomeFragment extends Fragment {
         settings.setAllowContentAccess(true);
         settings.setDatabaseEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false); // For TTS/Audio
-        
+
         // Ensure standard mobile viewport behavior
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
@@ -58,9 +58,10 @@ public class HomeFragment extends Fragment {
         // Note: Using getActivity() because the bridge requires an Activity context for UI operations
         voiceManager = new VoiceManager(requireActivity(), webView);
         webAppInterface = new WebAppInterface(requireActivity(), webView);
-        
-        // Link the VoiceManager to the bridge so the mic icon in HTML works
+
+        // Link the managers to enable Barge-in and Microphone control
         webAppInterface.setVoiceManager(voiceManager);
+        voiceManager.setBridge(webAppInterface);
 
         // 3. Set the Custom Puter WebView Client
         // This handles authentication redirects and persistence logic
