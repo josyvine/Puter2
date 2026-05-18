@@ -18,24 +18,20 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # Decode the Keystore file from GitHub Secrets
-      - name: Decode Keystore
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/release.jks
-
+      # Build the APK using Gradle
+      # Removed all Keystore and Base64 environment variables as requested
       - name: Build with Gradle
         uses: gradle/gradle-build-action@v2
         with:
           gradle-version: '8.0'
           cache-disabled: true
           arguments: app:assembleRelease
-        env:
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-      # Upload the signed RELEASE APK
-      - name: Upload Signed APK
+      # Upload the generated APK
+      # Fixed the path to use a wildcard (*.apk) to ensure it finds the file
+      # even if it is named 'app-release-unsigned.apk'
+      - name: Upload Puter Unofficial APK
         uses: actions/upload-artifact@v4
         with:
-          name: HFS-Security-Release.apk
-          path: app/build/outputs/apk/release/app-release.apk
+          name: Puter-Unofficial-Release
+          path: app/build/outputs/apk/release/*.apk
