@@ -55,9 +55,29 @@ public class MyWebChromeClient extends WebChromeClient {
         WebSettings webSettings = popupWebView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
+        webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
+        webSettings.setSupportMultipleWindows(true);
+
+        // FIX: Bypass Google 403 "disallowed_useragent" by removing the WebView identifier ("; wv").
+        // This forces Google to treat this popup as a standard mobile browser, allowing sign-in 
+        // to proceed successfully without pushing the user out of the app.
+        String userAgent = webSettings.getUserAgentString();
+        userAgent = userAgent.replace("; wv", "");
+        webSettings.setUserAgentString(userAgent);
         
         // Use the same client to handle redirects within the popup
         popupWebView.setWebViewClient(new PuterWebViewClient(activity));
+
+        // Let the popup handle its own closing when Puter finishes auth
+        popupWebView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onCloseWindow(WebView window) {
+                if (authDialog != null && authDialog.isShowing()) {
+                    authDialog.dismiss();
+                    authDialog = null;
+                }
+            }
+        });
 
         // Create a dialog to display the popup WebView
         authDialog = new Dialog(activity, android.R.style.Theme_DeviceDefault_NoActionBar);
@@ -68,7 +88,7 @@ public class MyWebChromeClient extends WebChromeClient {
         transport.setWebView(popupWebView);
         resultMsg.sendToTarget();
         
-        Log.d(AppConstants.TAG_AUTH, "onCreateWindow: Handled Puter auth popup.");
+        Log.d(AppConstants.TAG_AUTH, "onCreateWindow: Handled Puter auth popup with User-Agent fix.");
         return true;
     }
 
