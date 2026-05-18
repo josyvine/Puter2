@@ -79,8 +79,8 @@ public class AuthManager {
          * Puter typically redirects back to the main domain or a custom 
          * callback URL after login. We check for success markers.
          */
-        return (url.contains("puter.com") && url.contains("token=")) || 
-               url.contains("auth_success") || 
-               url.contains("signed_in=true");
+        // Use constants for better maintainability. This checks if the URL
+        // indicates a successful login via the Puter.js SDK redirect.
+        return (url.contains(AppConstants.AUTH_TOKEN_PARAM) || url.contains(AppConstants.AUTH_SUCCESS_MARKER));
     }
-} 
+}
