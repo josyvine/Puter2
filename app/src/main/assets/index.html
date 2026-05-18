@@ -226,11 +226,20 @@
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
-    // 1. Load Categorized Models from models.json
-    async function loadModels() {
+    // --- REBUILT LOGIC ---
+
+    // 1. Load Categorized Models from NATIVE BRIDGE
+    function loadModels() {
       try {
-        const response = await fetch('models.json');
-        const models = await response.json();
+        const jsonString = window.AndroidInterface.getLocalJson("models.json");
+        const providers = JSON.parse(jsonString);
+        
+        let allModels = [];
+        for (const providerKey in providers) {
+            const providerModels = providers[providerKey].map(model => ({ ...model, provider: providerKey }));
+            allModels = allModels.concat(providerModels);
+        }
+
         const select = document.getElementById('puterModelSelect');
         select.innerHTML = '';
 
@@ -248,11 +257,11 @@
           
           let filtered = [];
           if (key === 'all') {
-            filtered = [...models].sort((a, b) => a.name.localeCompare(b.name));
+            filtered = [...allModels].sort((a, b) => a.name.localeCompare(b.name));
           } else if (key === 'parent') {
-            filtered = models.filter(m => ["google", "openai", "anthropic"].includes(m.provider));
+            filtered = allModels.filter(m => ["gemini", "openai-completion", "claude"].includes(m.provider));
           } else {
-            filtered = models.filter(m => m.categories.includes(key));
+            filtered = allModels.filter(m => m.categories.includes(key));
           }
 
           filtered.forEach(m => {
@@ -264,13 +273,19 @@
           select.appendChild(group);
         }
       } catch(e) { 
-          console.error("Model load failed"); 
+          console.error("Model load via bridge failed:", e); 
           document.getElementById('puterModelSelect').innerHTML = '<option>Error loading models</option>';
       }
     }
 
-    // 2. Main Chat Logic
+    // 2. Main Chat Logic with AUTH GUARD
     async function sendMessage() {
+      if (!puter.auth.isSignedIn()) {
+        alert("Please sign in to start chatting with Puter.");
+        handleAuthAction();
+        return;
+      }
+
       const input = document.getElementById('puterChatInput');
       const text = input.value.trim();
       const model = document.getElementById('puterModelSelect').value;
@@ -290,11 +305,12 @@
         const botMsg = resp.message.content;
         appendChat("Bot", botMsg);
         
-        // Native Android TTS Call
         if(window.AndroidInterface) window.AndroidInterface.speak(botMsg);
         
         clearImage();
-      } catch(e) { appendChat("System", "Error: " + e.message); }
+      } catch(e) { 
+        appendChat("System", "Error: " + e.message); 
+      }
     }
 
     function appendChat(sender, text) {
@@ -320,23 +336,36 @@
       img.style.display = 'block';
     };
 
-    function handleAuthAction() {
-      if(window.AndroidInterface) {
-        if(window.AndroidInterface.isLoggedIn()) {
-          window.AndroidInterface.signOut();
-        } else {
-          window.AndroidInterface.signIn();
+    // 4. SDK-DRIVEN AUTHENTICATION
+    async function handleAuthAction() {
+        try {
+            if (puter.auth.isSignedIn()) {
+                await puter.auth.signOut();
+                appendChat("System", "You have been signed out.");
+            } else {
+                await puter.auth.signIn();
+                // After successful sign-in, the page will reload,
+                // and updateAuthUI() will be called on the new page load.
+            }
+        } catch (error) {
+            console.error("Auth action failed:", error);
+            appendChat("System", "Authentication failed: " + error.message);
         }
-        setTimeout(updateAuthUI, 500);
-      }
+        // Update UI immediately after action completes
+        updateAuthUI();
     }
 
     function updateAuthUI() {
-      if (window.AndroidInterface && typeof window.AndroidInterface.isLoggedIn === 'function') {
-        const logged = window.AndroidInterface.isLoggedIn();
+      if (typeof puter !== 'undefined' && window.AndroidInterface) {
+        const logged = puter.auth.isSignedIn();
         document.getElementById('authOption').textContent = logged ? "Sign Out" : "Sign In";
+        
+        // Sync the state back to the native layer
+        window.AndroidInterface.onAuthStatusChanged(logged);
       }
     }
+
+    // --- ORIGINAL HELPER FUNCTIONS (UNCHANGED) ---
 
     function saveCustom() {
       customInstruction = document.getElementById('customInput').value;
@@ -366,10 +395,14 @@
       document.getElementById('imagePreview').style.display = 'none';
     }
 
+    // Initialize after Puter SDK is ready
     window.onload = () => {
-      loadModels();
-      document.getElementById('customInput').value = customInstruction;
-      setTimeout(updateAuthUI, 800);
+        puter.ready(() => {
+            console.log("Puter SDK is ready.");
+            loadModels();
+            document.getElementById('customInput').value = customInstruction;
+            updateAuthUI();
+        });
     };
   </script>
 </body>
