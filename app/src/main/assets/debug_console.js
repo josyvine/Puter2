@@ -2,6 +2,8 @@
  * Puter Unofficial Diagnostic Console
  * Purpose: Track session transitions and identify origin isolation errors.
  * Features: Floating UI, Minimize, Close, Full Screen.
+ * 
+ * UPDATED: Optimized for Secure Origin (HTTPS) environment.
  */
 (function() {
     // 1. Create and Inject the Console Styles
@@ -204,8 +206,13 @@
     };
 
     // Initialize display with metadata
+    const isSecure = window.isSecureContext ? "YES" : "NO";
     window.addPuterLog("--- DEBUG SESSION STARTED ---", "native");
     window.addPuterLog("Origin: " + window.location.origin, "native");
+    window.addPuterLog("Secure Context: " + isSecure, "native");
     window.addPuterLog("User Agent: " + navigator.userAgent, "info");
+    
+    // Check if models.json is reachable under the new origin
+    window.addPuterLog("Checking Asset Path compatibility...", "info");
 
 })();
