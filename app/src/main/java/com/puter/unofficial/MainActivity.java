@@ -37,6 +37,9 @@ public class MainActivity extends AppCompatActivity {
 
     private final static int FILE_CHOOSER_RESULT_CODE = 1;
     private final static int PERMISSION_REQUEST_CODE = 100;
+    
+    // Logic Guard to prevent the UI Blinking Loop
+    private boolean isRefreshing = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -194,11 +197,20 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Required by SettingsFragment to refresh the UI when the user signs out.
+     * UPDATED: Added a reload guard to prevent the "Blinking UI" loop during authentication.
      */
     public void reloadWebView() {
         runOnUiThread(() -> {
-            if (webView != null) {
+            if (webView != null && !isRefreshing) {
+                isRefreshing = true;
+                
+                // Ensure cookies are synced before reload to maintain the session handshake
+                CookieManager.getInstance().flush();
+                
                 webView.reload();
+                
+                // Release the guard after a delay to allow the page to settle
+                webView.postDelayed(() -> isRefreshing = false, 3000);
             }
         });
     }
