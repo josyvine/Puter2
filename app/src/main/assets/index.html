@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <title>Puter Unofficial</title>
+  <!-- DIAGNOSTIC CONSOLE: Must load first to capture all events -->
+  <script src="debug_console.js"></script>
   <script src="https://js.puter.com/v2/" async></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@4.0.0/marked.min.js"></script>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
@@ -280,6 +282,7 @@
 
     function selectModel(id, name) {
         globalSelectedModel = id;
+        console.log("Model Selected: " + id);
         // Update the UI trigger text to show what was selected
         document.getElementById('selectedModelText').textContent = name || id;
         // Close the menu
@@ -290,7 +293,7 @@
     function loadModels() {
       try {
         if (!window.AndroidInterface) {
-            // Keep the "Loading..." state visible if the bridge isn't ready yet
+            console.warn("Waiting for AndroidInterface to load models...");
             return;
         }
         
@@ -390,7 +393,9 @@
 
     // 2. Main Chat Logic with AUTH GUARD
     async function sendMessage() {
-      if (typeof puter === 'undefined' || !puter.auth.isSignedIn()) {
+      console.log("Send Clicked. Checking Puter Auth...");
+      if (typeof puter === 'undefined' || !puter.ready || !puter.auth.isSignedIn()) {
+        console.error("Auth Check Failed. User is not signed in.");
         alert("Please sign in to start chatting with Puter.");
         handleAuthAction();
         return;
@@ -413,6 +418,7 @@
       }
 
       try {
+        console.log("Requesting AI Response for model: " + model);
         const resp = await puter.ai.chat(content, {model: model, system_message: customInstruction});
         const botMsg = resp.message.content;
         appendChat("Bot", botMsg);
@@ -421,6 +427,7 @@
 
         clearImage();
       } catch(e) { 
+        console.error("API Call Failed: " + e.message);
         appendChat("System", "Error: " + e.message); 
       }
     }
@@ -436,12 +443,14 @@
 
     // 3. Android Bridge Handlers
     window.onSpeechResult = (text) => {
+      console.log("Speech Result Received: " + text);
       document.getElementById('puterChatInput').value = text;
       handleInput();
       sendMessage();
     };
 
     window.onImageResult = (base64) => {
+      console.log("Image Data Received via Bridge");
       currentImageData = base64;
       const img = document.getElementById('imagePreview');
       img.src = base64;
@@ -456,11 +465,13 @@
                 return;
             }
             if (puter.auth.isSignedIn()) {
+                console.log("Signing Out...");
                 await puter.auth.signOut();
                 localStorage.removeItem('puter_token'); // Clear local injection
                 appendChat("System", "You have been signed out.");
                 updateAuthUI();
             } else {
+                console.log("Triggering Puter SDK SignIn popup...");
                 await puter.auth.signIn(); 
             }
         } catch (error) {
@@ -470,41 +481,47 @@
     }
 
     /**
-     * UPDATED: Added session injection from Native side to fix the isolation bug.
+     * DIAGNOSTIC: Added session injection from Native side to fix the isolation bug.
      * This manually sets the token in the main WebView before Puter.js checks for it.
      */
     function syncAuthSession() {
-        if (window.AndroidInterface) {
+        if (window.AndroidInterface && window.AndroidInterface.getSavedAuthToken) {
             const token = window.AndroidInterface.getSavedAuthToken();
-            if (token && token !== "null") {
-                console.log("Bridging session token from Native to Web.");
+            if (token && token !== "null" && token !== "") {
+                console.log("DIAGNOSTIC: Injecting Native Token into LocalStorage.");
                 localStorage.setItem('puter_token', token);
+            } else {
+                console.warn("DIAGNOSTIC: No Native Token found to inject.");
             }
         }
     }
 
     /**
      * UPDATED: Added a status guard (lastAuthStatus) to prevent the "UI Blinking" reload loop.
-     * Only triggers a native status change if the login state actually flips.
+     * Also logs status to the diagnostic console.
      */
     function updateAuthUI() {
       if (typeof puter !== 'undefined' && window.AndroidInterface) {
         const logged = puter.auth.isSignedIn();
+        console.log("Auth UI Sync. Logged In: " + logged);
 
         // Prevent redundant native calls that cause reloads
         if (logged === lastAuthStatus) return;
         lastAuthStatus = logged;
 
         document.getElementById('authOption').textContent = logged ? "Sign Out" : "Sign In";
+        
+        // Notify Java side to update its internal SharedPreferences
         window.AndroidInterface.onAuthStatusChanged(logged);
       }
     }
 
-    // --- ORIGINAL HELPER FUNCTIONS ---
+    // --- HELPER FUNCTIONS ---
 
     function saveCustom() {
       customInstruction = document.getElementById('customInput').value;
       localStorage.setItem('puter_custom_ins', customInstruction);
+      console.log("Custom Instruction Saved.");
       closeModal('customModal');
     }
 
@@ -523,6 +540,7 @@
     function newSession() {
       document.getElementById('puterChatLog').innerHTML = '';
       clearImage();
+      console.log("Session Cleared.");
     }
 
     function clearImage() {
@@ -532,7 +550,9 @@
 
     // Execute immediately on load
     window.onload = () => {
-        // 1. Sync session from Native before SDK initializes
+        console.log("Page Lifecycle: ONLOAD");
+        
+        // 1. Sync session from Native before SDK initializes its internal memory
         syncAuthSession();
 
         // 2. Load UI elements
@@ -540,11 +560,14 @@
         document.getElementById('customInput').value = customInstruction;
 
         if (typeof puter !== 'undefined') {
+            console.log("Puter SDK detected. Waiting for ready...");
             puter.ready(() => {
-                console.log("Puter SDK is ready.");
+                console.log("Puter SDK is READY. Checking Final Session State.");
                 // Ensure auth UI is called only once the SDK has fully initialized its session
                 updateAuthUI();
             });
+        } else {
+            console.error("CRITICAL: Puter.js SDK failed to load script!");
         }
     };
   </script>
