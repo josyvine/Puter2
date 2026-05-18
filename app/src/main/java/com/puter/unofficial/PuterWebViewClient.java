@@ -36,22 +36,21 @@ public class PuterWebViewClient extends WebViewClient {
         if (authManager.isAuthCallback(url)) {
             Log.i(TAG, "Authentication successful redirect detected.");
             
-            // Persist the login state
+            // Persist the login state immediately
             authManager.setLoggedIn(true);
             
             // Sync cookies immediately to ensure Puter.js stays authenticated
             CookieManager.getInstance().flush();
             
             /* 
-             * Instead of letting the WebView load the callback URL, 
-             * we redirect the user back to our local index.html 
-             * so the UI can update to the "Signed In" state.
+             * Let the WebView handle the final redirect, but our onPageFinished
+             * will ensure the UI updates correctly. This is more stable than
+             * forcing a loadUrl here. The SDK needs to finish its internal state.
              */
-            view.loadUrl("file:///android_asset/index.html");
-            return true;
         }
 
-        // Return false to let the WebView handle the URL normally
+        // Return false to let the WebView handle all URL loads normally.
+        // This is crucial for the SDK's popup/redirect flow to work correctly.
         return false;
     }
 
@@ -66,16 +65,19 @@ public class PuterWebViewClient extends WebViewClient {
         super.onPageFinished(view, url);
         Log.d(TAG, "Page load finished: " + url);
 
-        // Ensure cookies are saved for persistence
+        // Ensure cookies are saved for persistence after any page load
         CookieManager.getInstance().flush();
 
         /*
          * After our index.html is loaded, we can trigger a JS function 
          * to update the UI based on the latest Auth state.
+         * This now also handles the refresh after a successful login redirect.
          */
-        if (url.startsWith("file:///android_asset/index.html")) {
-            boolean status = authManager.isLoggedIn();
-            view.evaluateJavascript("if(window.updateAuthUI) { window.updateAuthUI(" + status + "); }", null);
+        if (url.startsWith(AppConstants.LOCAL_INDEX_URL)) {
+            // Use evaluateJavascript for better performance and error handling
+            view.post(() -> {
+                view.evaluateJavascript("if(window.updateAuthUI) { window.updateAuthUI(); }", null);
+            });
         }
     }
 
@@ -86,6 +88,6 @@ public class PuterWebViewClient extends WebViewClient {
     @Override
     public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
         super.onReceivedError(view, errorCode, description, failingUrl);
-        Log.e(TAG, "WebView Error (" + errorCode + "): " + description);
+        Log.e(TAG, "WebView Error (" + errorCode + "): " + description + " at " + failingUrl);
     }
 }
