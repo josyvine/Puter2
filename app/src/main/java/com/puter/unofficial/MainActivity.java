@@ -1,7 +1,10 @@
 package com.puter.unofficial;
 
 import android.Manifest;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -10,7 +13,6 @@ import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -28,20 +30,23 @@ public class MainActivity extends AppCompatActivity {
     private VoiceManager voiceManager;
     private WebAppInterface webAppInterface;
     
+    // Receiver to catch results from the Full-Screen Voice Agent Activity
+    private BroadcastReceiver voiceReceiver;
+
     private final static int FILE_CHOOSER_RESULT_CODE = 1;
     private final static int PERMISSION_REQUEST_CODE = 100;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
-        // Force White/Light Theme at the Activity Level
+
+        // Force White/Light Theme at the Activity Level as per instructions
         setTheme(androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar);
         setContentView(R.layout.activity_main);
 
         webView = findViewById(R.id.webView);
 
-        // --- WebView Configuration ---
+        // --- WebView Configuration (Thoroughly Maintained) ---
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
@@ -50,25 +55,16 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setDatabaseEnabled(true);
         webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
-        
-        // Ensure the WebView looks right on mobile
+
+        // Ensure the WebView looks right on mobile viewports
         webSettings.setUseWideViewPort(true);
         webSettings.setLoadWithOverviewMode(true);
 
-        // Set WebViewClient
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                // If it's a Puter auth URL, we let the browser handle it 
-                // or handle it here for persistence
-                if (url.contains("puter.com")) {
-                    return false; 
-                }
-                return super.shouldOverrideUrlLoading(view, url);
-            }
-        });
+        // --- WebViewClient for Auth Persistence ---
+        // Uses the PuterWebViewClient to intercept login redirects
+        webView.setWebViewClient(new PuterWebViewClient(this));
 
-        // --- WebChromeClient for File Uploads (Camera/Gallery) ---
+        // --- WebChromeClient for File/Image Uploads (Camera/Gallery) ---
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
@@ -92,29 +88,64 @@ public class MainActivity extends AppCompatActivity {
         // --- Initialize Native Managers ---
         voiceManager = new VoiceManager(this, webView);
         webAppInterface = new WebAppInterface(this, webView);
-        
-        // Inject the VoiceManager into the bridge so the HTML mic button works
+
+        // Link the managers to enable Barge-in and Microphone control
         webAppInterface.setVoiceManager(voiceManager);
+        voiceManager.setBridge(webAppInterface);
 
         // --- JavaScript Interface Bridge ---
-        // Maps "window.AndroidInterface" in HTML to our WebAppInterface class
+        // Exposes 'window.AndroidInterface' to index.html
         webView.addJavascriptInterface(webAppInterface, "AndroidInterface");
 
-        // Load the local HTML from assets
+        // Load the Puter Unofficial frontend
         webView.loadUrl("file:///android_asset/index.html");
 
-        // Request Permissions for the features to work
+        // --- Voice Results Setup ---
+        setupVoiceReceiver();
+
+        // Request Permissions
         checkAndRequestPermissions();
+    }
+
+    /**
+     * Listens for the "PUTER_VOICE_INPUT" intent sent from VoiceAgentActivity.
+     * When the user finishes speaking in the full-screen mode, this injects 
+     * the text back into the WebView.
+     */
+    private void setupVoiceReceiver() {
+        voiceReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if ("PUTER_VOICE_INPUT".equals(intent.getAction())) {
+                    String query = intent.getStringExtra("QUERY");
+                    if (query != null) {
+                        injectSpeechToWebView(query);
+                    }
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter("PUTER_VOICE_INPUT");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(voiceReceiver, filter, Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(voiceReceiver, filter);
+        }
+    }
+
+    private void injectSpeechToWebView(String text) {
+        String safeText = text.replace("'", "\\'");
+        webView.post(() -> webView.evaluateJavascript(
+                "if(window.onSpeechResult) { window.onSpeechResult('" + safeText + "'); }", 
+                null)
+        );
     }
 
     private void checkAndRequestPermissions() {
         List<String> listPermissionsNeeded = new ArrayList<>();
-        
         listPermissionsNeeded.add(Manifest.permission.INTERNET);
         listPermissionsNeeded.add(Manifest.permission.RECORD_AUDIO);
         listPermissionsNeeded.add(Manifest.permission.CAMERA);
 
-        // Handle storage permissions based on Android version
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             listPermissionsNeeded.add(Manifest.permission.READ_MEDIA_IMAGES);
         } else {
@@ -146,7 +177,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             if (!allGranted) {
-                Toast.makeText(this, "Permissions required for Voice and Camera", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Voice and Image features require permissions.", Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -172,6 +203,9 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (voiceReceiver != null) {
+            unregisterReceiver(voiceReceiver);
+        }
         if (webView != null) {
             webView.destroy();
         }
