@@ -235,6 +235,7 @@
     let currentImageData = null;
     let customInstruction = localStorage.getItem('puter_custom_ins') || "";
     let globalSelectedModel = ""; // Replaces the select.value logic
+    let lastAuthStatus = null; // Guard to prevent UI Blinking loops
 
     function handleInput() {
       const input = document.getElementById('puterChatInput');
@@ -289,7 +290,8 @@
     function loadModels() {
       try {
         if (!window.AndroidInterface) {
-            throw new Error("AndroidInterface is not available.");
+            // Keep the "Loading..." state visible if the bridge isn't ready yet
+            return;
         }
         
         const jsonString = window.AndroidInterface.getLocalJson("models.json");
@@ -397,7 +399,6 @@
       const input = document.getElementById('puterChatInput');
       const text = input.value.trim();
       
-      // Use the global variable from our custom slider instead of a select tag
       const model = globalSelectedModel; 
       
       if(!text && !currentImageData) return;
@@ -459,7 +460,6 @@
                 appendChat("System", "You have been signed out.");
                 updateAuthUI();
             } else {
-                // This triggers the popup handled by MyWebChromeClient
                 await puter.auth.signIn(); 
             }
         } catch (error) {
@@ -468,17 +468,24 @@
         }
     }
 
+    /**
+     * UPDATED: Added a status guard (lastAuthStatus) to prevent the "UI Blinking" reload loop.
+     * Only triggers a native status change if the login state actually flips.
+     */
     function updateAuthUI() {
       if (typeof puter !== 'undefined' && window.AndroidInterface) {
         const logged = puter.auth.isSignedIn();
-        document.getElementById('authOption').textContent = logged ? "Sign Out" : "Sign In";
+        
+        // Prevent redundant native calls that cause reloads
+        if (logged === lastAuthStatus) return;
+        lastAuthStatus = logged;
 
-        // Sync the state back to the native layer
+        document.getElementById('authOption').textContent = logged ? "Sign Out" : "Sign In";
         window.AndroidInterface.onAuthStatusChanged(logged);
       }
     }
 
-    // --- ORIGINAL HELPER FUNCTIONS (UNCHANGED) ---
+    // --- ORIGINAL HELPER FUNCTIONS ---
 
     function saveCustom() {
       customInstruction = document.getElementById('customInput').value;
@@ -510,14 +517,13 @@
 
     // Execute immediately on load
     window.onload = () => {
-        // 1. Load models instantly via Native Bridge
         loadModels();
         document.getElementById('customInput').value = customInstruction;
         
-        // 2. Wait for SDK only for Auth Updates
         if (typeof puter !== 'undefined') {
             puter.ready(() => {
                 console.log("Puter SDK is ready.");
+                // Ensure auth UI is called only once the SDK has fully initialized its session
                 updateAuthUI();
             });
         }
