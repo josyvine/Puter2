@@ -1,0 +1,121 @@
+package com.puter.unofficial;
+
+import android.os.Bundle;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.fragment.app.Fragment;
+
+import com.puter.unofficial.databinding.FragmentHomeBinding;
+
+/**
+ * The Primary Dashboard Fragment for Puter Unofficial.
+ * This fragment hosts the WebView that displays the Puter AI chat interface.
+ * It initializes the JavaScript bridge and handles native feature integration.
+ */
+public class HomeFragment extends Fragment {
+
+    private FragmentHomeBinding binding;
+    private WebView webView;
+    private WebAppInterface webAppInterface;
+    private VoiceManager voiceManager;
+
+    @Nullable
+    @Override
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+        // Initialize ViewBinding for the fragment layout
+        binding = FragmentHomeBinding.binding = FragmentHomeBinding.inflate(inflater, container, false);
+        return binding.getRoot();
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+
+        // Reference the WebView defined in fragment_home.xml
+        webView = binding.homeWebView;
+
+        // 1. Configure WebView Settings for Puter.js compatibility
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setDatabaseEnabled(true);
+        settings.setMediaPlaybackRequiresUserGesture(false); // For TTS/Audio
+        
+        // Ensure standard mobile viewport behavior
+        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(true);
+
+        // 2. Initialize the Native Managers
+        // Note: Using getActivity() because the bridge requires an Activity context for UI operations
+        voiceManager = new VoiceManager(requireActivity(), webView);
+        webAppInterface = new WebAppInterface(requireActivity(), webView);
+        
+        // Link the VoiceManager to the bridge so the mic icon in HTML works
+        webAppInterface.setVoiceManager(voiceManager);
+
+        // 3. Set the Custom Puter WebView Client
+        // This handles authentication redirects and persistence logic
+        webView.setWebViewClient(new PuterWebViewClient(requireContext()));
+
+        // 4. Register the JavaScript Bridge
+        // This exposes 'window.AndroidInterface' to the HTML/JS frontend
+        webView.addJavascriptInterface(webAppInterface, "AndroidInterface");
+
+        // 5. Load the local Puter frontend from assets
+        webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    /**
+     * Refreshes the chat interface. 
+     * Can be called by the Activity when returning from settings.
+     */
+    public void refreshChat() {
+        if (webView != null) {
+            webView.reload();
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (webView != null) {
+            webView.onResume();
+            webView.resumeTimers();
+        }
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        if (webView != null) {
+            webView.onPause();
+            webView.pauseTimers();
+        }
+    }
+
+    @Override
+    public void onDestroyView() {
+        // Cleanup to prevent memory leaks
+        if (webAppInterface != null) {
+            webAppInterface.destroy();
+        }
+        if (voiceManager != null) {
+            voiceManager.destroy();
+        }
+        if (webView != null) {
+            webView.stopLoading();
+            webView.destroy();
+        }
+        super.onDestroyView();
+        binding = null;
+    }
+}
