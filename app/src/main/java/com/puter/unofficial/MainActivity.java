@@ -156,6 +156,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * Requirement #1: Broadcast AI response text back to VoiceAgentActivity.
+     */
+    public void broadcastAiResponse(String text) {
+        Intent intent = new Intent("PUTER_AI_RESPONSE");
+        intent.putExtra("RESPONSE_TEXT", text);
+        sendBroadcast(intent);
+        Log.d("MainActivity", "AI Response Broadcasted to Native Agent");
+    }
+
+    /**
      * Requirement #3: Injects spoken text into the index.html logic.
      */
     private void injectSpeechToWebView(String text) {
