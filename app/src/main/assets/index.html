@@ -1,3 +1,5 @@
+--- START OF FILE Paste May 19, 2026 - 2:14PM ---
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -338,8 +340,17 @@
      */
     function normalizeModels(rawModels) {
         if (!rawModels) return {};
-        // If already grouped (Local JSON format)
-        if (!Array.isArray(rawModels)) return rawModels;
+        
+        // --- REPLACEMENT 3 ---
+        if (rawModels?.models) {
+            rawModels = rawModels.models;
+        }
+
+        if (!Array.isArray(rawModels)) {
+            console.error("Invalid models response:", rawModels);
+            return {};
+        }
+        // ----------------------
 
         const grouped = {};
         rawModels.filter(m => m && m.id).forEach(model => {
@@ -437,12 +448,24 @@
                 const cached = localStorage.getItem("puter_live_models");
                 if (cached) renderModelAccordion(JSON.parse(cached));
                 
-                // Fetch fresh if authenticated
-                if (typeof puter !== 'undefined' && puter.auth.isSignedIn()) {
-                    loadLiveModels();
-                } else {
-                    document.getElementById('selectedModelText').textContent = "Sign in for Live Models";
+                // --- REPLACEMENT 2 ---
+                if (typeof puter !== 'undefined' && puter.auth) {
+                    try {
+                        const user = await puter.auth.getUser();
+                        if (user) {
+                            await loadLiveModels();
+                        } else {
+                            document.getElementById('selectedModelText')
+                                .textContent = "Sign in for Live Models";
+                        }
+                    } catch (e) {
+                        console.error("Auth validation failed:", e);
+                        document.getElementById('selectedModelText')
+                            .textContent = "Authentication failed";
+                    }
                 }
+                // ---------------------
+
             } else {
                 const jsonString = window.AndroidInterface.getLocalJson("models.json");
                 if (!jsonString || jsonString === "{}") throw new Error("Local models missing");
@@ -457,17 +480,67 @@
     /**
      * Requirement #7 - Live Fetch Implementation
      */
+    // --- REPLACEMENT 1 ---
     async function loadLiveModels() {
         try {
-            document.getElementById('selectedModelText').textContent = "Syncing live models...";
-            const raw = await (puter.ai.models ? puter.ai.models() : puter.ai.listModels());
+            document.getElementById('selectedModelText')
+                .textContent = "Fetching live models...";
+
+            // Wait a bit after OAuth redirect
+            await new Promise(r => setTimeout(r, 1200));
+
+            // HARD auth validation
+            const user = await puter.auth.getUser();
+
+            if (!user) {
+                document.getElementById('selectedModelText')
+                    .textContent = "Sign in required";
+                return;
+            }
+
+            console.log("Authenticated User:", user);
+
+            // ONLY use listModels()
+            let raw = await puter.ai.listModels();
+
+            console.log("RAW MODELS:", raw);
+
+            // SDK compatibility
+            if (raw?.models) {
+                raw = raw.models;
+            }
+
+            if (!Array.isArray(raw)) {
+                throw new Error("Invalid model response");
+            }
+
+            if (raw.length === 0) {
+                throw new Error("No models returned");
+            }
+
             const grouped = normalizeModels(raw);
-            localStorage.setItem("puter_live_models", JSON.stringify(grouped));
+
+            localStorage.setItem(
+                "puter_live_models",
+                JSON.stringify(grouped)
+            );
+
             renderModelAccordion(grouped);
+            console.log("Live models loaded");
+
         } catch (err) {
-            console.error("Live Fetch failed:", err);
+            console.error("Live model fetch failed:", err);
+            document.getElementById('selectedModelText')
+                .textContent = "Live models failed";
+
+            appendChat(
+                "System",
+                "Live Model Error: " +
+                (err?.message || JSON.stringify(err))
+            );
         }
     }
+    // ---------------------
 
     function toggleModelSource() {
         isLiveMode = !isLiveMode;
@@ -750,25 +823,27 @@
       document.getElementById('imagePreview').style.display = 'none';
     }
 
-    // Execute immediately on load
-    window.onload = () => {
-        console.log("Page Lifecycle: ONLOAD on Secure Origin");
-        
+    // --- REPLACEMENT 4 ---
+    window.onload = async () => {
+        console.log("Page Lifecycle: ONLOAD");
+
         syncAuthSession();
-        // FIX 1: loadModels() removed from here to wait for SDK ready
         loadSavedHistory();
         document.getElementById('customInput').value = customInstruction;
 
         if (typeof puter !== 'undefined') {
-            console.log("Puter SDK detected. Waiting for ready signal...");
-            puter.ready(() => {
-                console.log("Puter SDK Ready. Finalizing Session UI...");
+            console.log("Waiting for Puter SDK...");
+            puter.ready(async () => {
+                console.log("Puter SDK Ready");
+
+                // IMPORTANT FIX
+                await new Promise(r => setTimeout(r, 1500));
+
                 updateAuthUI();
-                // FIX 1: loadModels triggered only when SDK is 100% available
-                loadModels();
+                await loadModels();
             });
         } else {
-            console.error("CRITICAL: Puter.js SDK failed to load on this origin!");
+            console.error("Puter SDK failed to load");
         }
     };
   </script>
