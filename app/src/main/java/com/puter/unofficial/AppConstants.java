@@ -14,6 +14,9 @@ public class AppConstants {
     
     // NEW: Key for local chat history persistence (Enhancement #4)
     public static final String KEY_CHAT_HISTORY = "puter_chat_history";
+    
+    // NEW: Key for toggling between local models.json and Puter Live API (Requirement #7)
+    public static final String KEY_USE_LIVE_MODELS = "use_live_models";
 
     // --- PUTER URLs ---
     // The main entry point for Puter.com authentication via browser redirect.
