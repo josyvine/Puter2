@@ -25,13 +25,18 @@ import androidx.core.content.ContextCompat;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * MainActivity: The primary host for the Puter Unofficial WebView.
+ * Handles permissions, hardware-level WebView configuration, 
+ * and communication with the native Voice Agent Activity.
+ */
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
     private ValueCallback<Uri[]> uploadMessage;
     private VoiceManager voiceManager;
     private WebAppInterface webAppInterface;
-    private MyWebChromeClient myWebChromeClient; // Use our custom client
+    private MyWebChromeClient myWebChromeClient; // Custom client for popups/uploads
 
     // Receiver to catch results from the Full-Screen Voice Agent Activity
     private BroadcastReceiver voiceReceiver;
@@ -39,25 +44,25 @@ public class MainActivity extends AppCompatActivity {
     private final static int FILE_CHOOSER_RESULT_CODE = 1;
     private final static int PERMISSION_REQUEST_CODE = 100;
     
-    // Logic Guard to prevent the UI Blinking Loop
+    // Logic Guard to prevent the UI Blinking Loop during Auth/Reloads
     private boolean isRefreshing = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Force White/Light Theme at the Activity Level as per instructions
+        // REQUIREMENT: Force White/Light Theme at the Activity Level
         setTheme(androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar);
         setContentView(R.layout.activity_main);
 
         webView = findViewById(R.id.webView);
 
-        // FIX: Enable Remote Debugging. This allows you to see the console via Chrome DevTools.
+        // DIAGNOSTICS: Enable Remote Debugging via Chrome DevTools (pc)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             WebView.setWebContentsDebuggingEnabled(true);
         }
 
-        // --- WebView Configuration (Thoroughly Maintained) ---
+        // --- WebView Configuration: Deep Hardware Settings ---
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
@@ -66,66 +71,66 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setDatabaseEnabled(true);
         webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
-        webSettings.setSupportMultipleWindows(true); // <-- REQUIRED FOR AUTH POPUP
+        
+        // CRITICAL FOR AUTH: Allows Puter SDK to open the Sign-In Popup Window
+        webSettings.setSupportMultipleWindows(true); 
 
-        // FIX: Allow scripts from local assets to access other content. 
-        // This is required for debug_console.js to function correctly.
+        // DIAGNOSTICS: Allow scripts to access local content for debug console
         webSettings.setAllowFileAccessFromFileURLs(true);
         webSettings.setAllowUniversalAccessFromFileURLs(true);
 
-        // FIX: Bypass SDK initialization hangs (Loading models bug) by removing the WebView identifier ("; wv").
-        // This forces the Puter.js SDK to treat the app as a standard mobile browser, 
-        // allowing it to fire the puter.ready() event successfully.
+        // FIX: Remove the WebView identifier ("; wv") from the User Agent.
+        // This tricks the Puter.js SDK into initializing correctly in an app context.
         String userAgent = webSettings.getUserAgentString();
         userAgent = userAgent.replace("; wv", "");
         webSettings.setUserAgentString(userAgent);
 
-        // FIX FOR PUTER.JS AUTH: Enable Third Party Cookies for the main WebView.
-        // PERSISTENCE UPDATE: Explicitly force acceptance to bridge the popup session.
+        // FIX FOR PUTER.JS AUTH: Enable and force Third-Party Cookie acceptance.
+        // This is necessary to bridge the session between the popup and main window.
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             cookieManager.setAcceptThirdPartyCookies(webView, true);
         }
 
-        // Ensure the WebView looks right on mobile viewports
+        // Standard Mobile Viewport scaling
         webSettings.setUseWideViewPort(true);
         webSettings.setLoadWithOverviewMode(true);
 
-        // --- WebViewClient for Auth Persistence ---
-        // Uses the PuterWebViewClient to intercept login redirects and handle AssetLoader routing
+        // --- Client Assignments ---
+        // PuterWebViewClient handles virtual HTTPS routing for session persistence
         webView.setWebViewClient(new PuterWebViewClient(this));
 
-        // --- WebChromeClient for File Uploads AND AUTH POPUPS ---
+        // MyWebChromeClient handles native file pickers and the Auth Popup Dialog
         myWebChromeClient = new MyWebChromeClient(this);
         webView.setWebChromeClient(myWebChromeClient);
 
-        // --- Initialize Native Managers ---
+        // --- Native Manager Initialization ---
         voiceManager = new VoiceManager(this, webView);
         webAppInterface = new WebAppInterface(this, webView);
 
-        // Link the managers to enable Barge-in and Microphone control
+        // Linking Voice and Bridge for Barge-in (Interruption) support
         webAppInterface.setVoiceManager(voiceManager);
         voiceManager.setBridge(webAppInterface);
 
-        // --- JavaScript Interface Bridge ---
-        // Exposes 'window.AndroidInterface' to index.html
+        // --- JavaScript Bridge Registration ---
+        // Exposes 'window.AndroidInterface' to the HTML/JS logic
         webView.addJavascriptInterface(webAppInterface, AppConstants.JS_BRIDGE_NAME);
 
-        // Load the Puter Unofficial frontend via the new HTTPS Asset origin
+        // Load the frontend via the Secure Origin Asset Loader
         webView.loadUrl(AppConstants.LOCAL_INDEX_URL);
 
-        // --- Voice Results Setup ---
+        // --- Native Voice Loop Setup ---
         setupVoiceReceiver();
 
-        // Request Permissions
+        // Check and Request System Permissions
         checkAndRequestPermissions();
     }
 
     /**
-     * Listens for the "PUTER_VOICE_INPUT" intent sent from VoiceAgentActivity.
-     * When the user finishes speaking in the full-screen mode, this injects 
-     * the text back into the WebView.
+     * Requirement #3: Voice Agent Communication.
+     * Listens for the "PUTER_VOICE_INPUT" broadcast from VoiceAgentActivity.
+     * When the full-screen mode finishes a turn, it injects the text here.
      */
     private void setupVoiceReceiver() {
         voiceReceiver = new BroadcastReceiver() {
@@ -134,12 +139,15 @@ public class MainActivity extends AppCompatActivity {
                 if ("PUTER_VOICE_INPUT".equals(intent.getAction())) {
                     String query = intent.getStringExtra("QUERY");
                     if (query != null) {
+                        Log.d("MainActivity", "Voice Input Received: " + query);
                         injectSpeechToWebView(query);
                     }
                 }
             }
         };
         IntentFilter filter = new IntentFilter("PUTER_VOICE_INPUT");
+        
+        // Android 13+ compatibility for exported receivers
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(voiceReceiver, filter, Context.RECEIVER_EXPORTED);
         } else {
@@ -147,6 +155,9 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Requirement #3: Injects spoken text into the index.html logic.
+     */
     private void injectSpeechToWebView(String text) {
         String safeText = text.replace("'", "\\'");
         webView.post(() -> webView.evaluateJavascript(
@@ -155,6 +166,9 @@ public class MainActivity extends AppCompatActivity {
         );
     }
 
+    /**
+     * Validates and requests all necessary hardware permissions.
+     */
     private void checkAndRequestPermissions() {
         List<String> listPermissionsNeeded = new ArrayList<>();
         listPermissionsNeeded.add(Manifest.permission.INTERNET);
@@ -200,30 +214,27 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        // Delegate the result to our custom WebChromeClient
+        // Requirement #3: Delegate file picker result back to ChromeClient
         if (myWebChromeClient != null) {
             myWebChromeClient.onActivityResult(requestCode, resultCode, data);
         }
-        // Handle other activity results if needed
     }
 
-
     /**
-     * Required by SettingsFragment to refresh the UI when the user signs out.
-     * UPDATED: Added a reload guard to prevent the "Blinking UI" loop during authentication.
-     * PERSISTENCE UPDATE: Added explicit cookie flush to save session to disk before reload.
+     * Requirement #5: Force-reloads the WebView UI.
+     * Used after sign-out to clear session state.
      */
     public void reloadWebView() {
         runOnUiThread(() -> {
             if (webView != null && !isRefreshing) {
                 isRefreshing = true;
                 
-                // PERSISTENCE FIX: Ensure cookies are flushed to storage before the SDK tries to re-read them.
+                // Requirement #4: Persistence Fix. Ensure cookies are saved before reload.
                 CookieManager.getInstance().flush();
                 
                 webView.reload();
                 
-                // Release the guard after a delay to allow the page to settle
+                // Release reload guard after 3 seconds to prevent UI flicker
                 webView.postDelayed(() -> isRefreshing = false, 3000);
             }
         });
@@ -231,7 +242,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
-        if (webView.canGoBack()) {
+        if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
             super.onBackPressed();
@@ -240,6 +251,7 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        // Cleanup Native Resources
         if (voiceReceiver != null) {
             unregisterReceiver(voiceReceiver);
         }
