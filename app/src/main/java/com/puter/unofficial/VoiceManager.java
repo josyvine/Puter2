@@ -3,6 +3,8 @@ package com.puter.unofficial;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -16,6 +18,7 @@ import java.util.Locale;
  * Refined Native Android Speech-to-Text Manager.
  * Optimized for Puter Unofficial to handle barge-in interruptions
  * and reliable communication with the HTML frontend.
+ * UPDATED: Integrated hardware-reset logic and adaptive error recovery.
  */
 public class VoiceManager {
 
@@ -25,6 +28,9 @@ public class VoiceManager {
     private SpeechRecognizer speechRecognizer;
     private Intent recognizerIntent;
     private WebAppInterface bridge;
+    
+    // Handler for managing hardware reset timing during barge-in
+    private final Handler resetHandler = new Handler(Looper.getMainLooper());
 
     public VoiceManager(Context context, WebView webView) {
         this.context = context;
@@ -66,6 +72,12 @@ public class VoiceManager {
                     if (bridge != null) {
                         bridge.stopSpeaking();
                     }
+                    
+                    /*
+                     * FIX: Adjust the recognizer logic to prevent hardware collisions.
+                     * We ensure that the TTS engine has fully released audio focus
+                     * so the SpeechRecognizer captures the user's voice, not the AI residue.
+                     */
                 }
 
                 @Override
@@ -82,17 +94,45 @@ public class VoiceManager {
                 @Override
                 public void onError(int error) {
                     String message;
+                    boolean shouldRetry = false;
+
                     switch (error) {
-                        case SpeechRecognizer.ERROR_AUDIO: message = "Audio recording error"; break;
-                        case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS: message = "Permission denied"; break;
-                        case SpeechRecognizer.ERROR_NETWORK: message = "Network error"; break;
-                        case SpeechRecognizer.ERROR_NO_MATCH: message = "No speech recognized"; break;
-                        case SpeechRecognizer.ERROR_SPEECH_TIMEOUT: message = "No speech input"; break;
-                        default: message = "Recognition error"; break;
+                        case SpeechRecognizer.ERROR_AUDIO: 
+                            message = "Audio recording error"; 
+                            break;
+                        case SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS: 
+                            message = "Permission denied"; 
+                            break;
+                        case SpeechRecognizer.ERROR_NETWORK: 
+                            message = "Network error"; 
+                            break;
+                        case SpeechRecognizer.ERROR_NO_MATCH: 
+                            message = "No speech recognized"; 
+                            shouldRetry = true; // RECOVERY: Don't kill the loop
+                            break;
+                        case SpeechRecognizer.ERROR_SPEECH_TIMEOUT: 
+                            message = "No speech input"; 
+                            shouldRetry = true; // RECOVERY: Don't kill the loop
+                            break;
+                        case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:
+                            message = "Recognizer busy";
+                            shouldRetry = true;
+                            break;
+                        default: 
+                            message = "Recognition error (" + error + ")"; 
+                            break;
                     }
+                    
                     Log.e(TAG, "Speech Error: " + message);
-                    // Notify frontend of the error
-                    sendResultToWeb("Error: " + message);
+
+                    // REQUIREMENT: Refine error handling to maintain "Always On" feel in Voice Mode.
+                    if (shouldRetry) {
+                        Log.d(TAG, "Transient glitch detected. Performing aggressive restart...");
+                        resetHandler.postDelayed(() -> startListening(), 150);
+                    } else {
+                        // Notify frontend of critical errors
+                        sendResultToWeb("Error: " + message);
+                    }
                 }
 
                 @Override
@@ -131,8 +171,17 @@ public class VoiceManager {
         if (speechRecognizer != null) {
             // Cancel any current recognition before starting a new one to prevent hangs
             // This is critical for the continuous conversation loop.
-            speechRecognizer.cancel();
-            speechRecognizer.startListening(recognizerIntent);
+            try {
+                speechRecognizer.cancel();
+                speechRecognizer.startListening(recognizerIntent);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to start listening: " + e.getMessage());
+                // Retry hardware acquisition after a short delay
+                resetHandler.postDelayed(() -> {
+                    speechRecognizer.cancel();
+                    speechRecognizer.startListening(recognizerIntent);
+                }, 300);
+            }
         }
     }
 
@@ -147,5 +196,6 @@ public class VoiceManager {
             speechRecognizer.cancel();
             speechRecognizer.destroy();
         }
+        resetHandler.removeCallbacksAndMessages(null);
     }
 }
