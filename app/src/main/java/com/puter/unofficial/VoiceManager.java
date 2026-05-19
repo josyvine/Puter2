@@ -48,6 +48,9 @@ public class VoiceManager {
             recognizerIntent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
             // Allow partial results for faster perceived response if needed
             recognizerIntent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+            
+            // REQUIREMENT #2: Ensure the recognizer can stay active during TTS for Barge-in
+            recognizerIntent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 2000);
 
             speechRecognizer.setRecognitionListener(new RecognitionListener() {
                 @Override
@@ -57,8 +60,9 @@ public class VoiceManager {
 
                 @Override
                 public void onBeginningOfSpeech() {
-                    Log.d(TAG, "User started speaking");
+                    Log.d(TAG, "User started speaking - BARGE-IN TRIGGERED");
                     // BARGE-IN: If the AI is currently speaking, stop it immediately
+                    // This allows the user to interrupt the AI response.
                     if (bridge != null) {
                         bridge.stopSpeaking();
                     }
@@ -119,9 +123,14 @@ public class VoiceManager {
         webView.post(() -> webView.evaluateJavascript("if(window.onSpeechResult) { window.onSpeechResult('" + safeText + "'); }", null));
     }
 
+    /**
+     * Starts the microphone. 
+     * Added aggressive cancelation of previous sessions to support modern barge-in.
+     */
     public void startListening() {
         if (speechRecognizer != null) {
             // Cancel any current recognition before starting a new one to prevent hangs
+            // This is critical for the continuous conversation loop.
             speechRecognizer.cancel();
             speechRecognizer.startListening(recognizerIntent);
         }
