@@ -24,6 +24,9 @@
     .dropdown li { list-style: none; margin: 0; cursor: pointer; padding: 12px 20px; border-bottom: 1px solid #f0f0f0; font-size: 16px; }
     .dropdown li:last-child { border-bottom: none; }
     .dropdown li:hover { background: #eee; }
+    
+    /* Session List styling inside dropdown */
+    .session-divider { background: #f9f9f9; font-weight: bold; color: #888; font-size: 12px; padding: 5px 20px; cursor: default; }
 
     .settings-container { position: fixed; top: 60px; left: 0; width: 100%; background: #fff; z-index: 90; padding: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-bottom: 1px solid #ddd; }
     
@@ -162,6 +165,8 @@
       <li onclick="newSession()">New Session</li>
       <li id="toggleSettingsBtn" onclick="toggleSettingsUI()">Hide Settings</li>
       <li onclick="openModal('helpModal')">Help</li>
+      <!-- REQUIREMENT #3: DYNAMIC SESSION LIST INJECTED HERE -->
+      <div id="dynamicSessions"></div>
     </ul>
   </header>
 
@@ -271,9 +276,13 @@
     let globalSelectedModel = ""; // Replaces the select.value logic
     let lastAuthStatus = null; // Guard to prevent UI Blinking loops
     let isLiveMode = false; // Persistent preference for Local vs Live models
+    
+    /* --- REQUIREMENT #1: VOICE FLAG FOR LIVELY TTS --- */
+    let isVoiceResponseActive = false;
 
-    /* --- HISTORY & CONTEXT STATE --- */
-    let chatHistory = JSON.parse(localStorage.getItem('puter_chat_history') || "[]");
+    /* --- REQUIREMENT #3: MULTI-SESSION STATE --- */
+    let currentSessionId = localStorage.getItem('puter_current_session_id') || Date.now().toString();
+    let chatHistory = JSON.parse(localStorage.getItem('puter_chat_history_' + currentSessionId) || "[]");
     let activeMessageContext = null; 
 
     function handleInput() {
@@ -302,6 +311,7 @@
 
     document.getElementById('puterMenuButton').onclick = (e) => {
       e.stopPropagation();
+      renderDynamicSessionList(); // Refresh session list on open
       document.getElementById('puterDropdownMenu').classList.toggle('show');
     };
 
@@ -572,8 +582,10 @@
 
         appendChat("Bot", botMsg);
 
-        // REQUIREMENT: REMOVED AUTOMATIC SPEECH. 
-        // Logic moved to context menu "Read Aloud".
+        /* --- REQUIREMENT #1: LIVELY NATIVE TTS RESPONSE --- */
+        if(isVoiceResponseActive && window.AndroidInterface) {
+            window.AndroidInterface.speak(botMsg);
+        }
 
         clearImage();
       } catch(e) { 
@@ -610,7 +622,8 @@
       // Persist to history if it's a real chat turn
       if(!isLoad && (sender === "User" || sender === "Bot")) {
           chatHistory.push({sender, text, id: "msg-" + msgId});
-          localStorage.setItem('puter_chat_history', JSON.stringify(chatHistory));
+          /* --- REQUIREMENT #3: PERSIST PER SESSION ID --- */
+          localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
       }
 
       window.scrollTo(0, document.body.scrollHeight);
@@ -653,7 +666,7 @@
             if(el) el.remove();
             // Remove from History
             chatHistory = chatHistory.filter(m => m.id !== id);
-            localStorage.setItem('puter_chat_history', JSON.stringify(chatHistory));
+            localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
         }
         document.getElementById('customContextMenu').style.display = 'none';
     }
@@ -676,12 +689,53 @@
         chatHistory.forEach(item => appendChat(item.sender, item.text, true));
     }
 
+    /* --- REQUIREMENT #3: DYNAMIC SESSION LOGIC --- */
+
+    function renderDynamicSessionList() {
+        const container = document.getElementById('dynamicSessions');
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key.startsWith('puter_chat_history_')) {
+                keys.push(key.replace('puter_chat_history_', ''));
+            }
+        }
+        
+        // Sort sessions by date (ID is timestamp)
+        keys.sort((a, b) => b - a);
+
+        let html = '<li class="session-divider">Old Sessions</li>';
+        keys.forEach((id, index) => {
+            html += `<li onclick="loadSession('${id}')">Session ${keys.length - index}</li>`;
+        });
+        container.innerHTML = html;
+    }
+
+    function loadSession(id) {
+        currentSessionId = id;
+        localStorage.setItem('puter_current_session_id', id);
+        chatHistory = JSON.parse(localStorage.getItem('puter_chat_history_' + id) || "[]");
+        document.getElementById('puterChatLog').innerHTML = '';
+        loadSavedHistory();
+        document.getElementById('puterDropdownMenu').classList.remove('show');
+        alert("Switched to Session");
+    }
+
     // 4. Android Bridge Handlers
     window.onSpeechResult = (text) => {
       console.log("Speech Result Received: " + text);
+      isVoiceResponseActive = true; // REQUIREMENT #1: Trigger lively voice response
       document.getElementById('puterChatInput').value = text;
       handleInput();
       sendMessage();
+    };
+
+    /* --- REQUIREMENT #2: CONTINUOUS INTERRUPTION --- */
+    window.onSpeechFinished = () => {
+        console.log("AI speech finished. Re-opening mic for continuous conversation.");
+        if(isVoiceResponseActive && window.AndroidInterface) {
+            window.AndroidInterface.startListening();
+        }
     };
 
     window.onImageResult = (base64) => {
@@ -764,13 +818,16 @@
       }
     }
 
-    // REQUIREMENT #5: NEW SESSION FIX
+    /* --- REQUIREMENT #3: NEW SESSION FIX --- */
     function newSession() {
+      // Don't remove history, just create a new ID
+      currentSessionId = Date.now().toString();
+      localStorage.setItem('puter_current_session_id', currentSessionId);
+      
       document.getElementById('puterChatLog').innerHTML = '';
       chatHistory = [];
-      localStorage.removeItem('puter_chat_history');
       clearImage();
-      console.log("Session and History Cleared.");
+      console.log("New Session ID generated: " + currentSessionId);
       alert("New Session Started");
     }
 
