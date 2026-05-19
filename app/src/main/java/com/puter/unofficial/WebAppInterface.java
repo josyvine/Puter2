@@ -19,7 +19,8 @@ import java.util.Locale;
  * Fulfills all requirements for native TTS, barge-in, full-screen voice agent,
  * and authentication persistence.
  * UPDATED: Aligned with WebViewAssetLoader architecture and diagnostic logging.
- * PERSISTENCE UPDATE: Added hardware-level cookie synchronization logic.
+ * PERSISTENCE UPDATE: Added hardware-level cookie synchronization logic to prevent 
+ * session loss during AI chat requests.
  */
 public class WebAppInterface {
 
@@ -151,14 +152,16 @@ public class WebAppInterface {
 
     /**
      * Syncs the Puter SDK's real-time auth status with the Native AuthManager.
-     * PERSISTENCE FIX: Forces hardware-level cookie flush to ensure session stability.
+     * PERSISTENCE FIX: Forces hardware-level cookie flush to ensure session stability
+     * so that the state remains valid during sending messages or using the mic.
      */
     @JavascriptInterface
     public void onAuthStatusChanged(boolean isSignedIn) {
         nativeLog("Syncing Auth Status: " + (isSignedIn ? "AUTHENTICATED" : "NOT_AUTHENTICATED"), "native");
         AuthManager.getInstance(context).setLoggedIn(isSignedIn);
         
-        // PERSISTENCE FIX: Commit cookies to disk immediately when status changes.
+        // PERSISTENCE FIX: Force the browser engine to commit cookies to disk.
+        // This solves the bug where signing in works but requests immediately fail.
         android.webkit.CookieManager.getInstance().flush();
     }
     
@@ -191,7 +194,7 @@ public class WebAppInterface {
     @JavascriptInterface
     public void signIn() {
         nativeLog("Handshaking with Puter Auth SDK...", "info");
-        // Handled via puter.auth.signIn() in index.html
+        // Logic handled via puter.auth.signIn() in index.html
     }
 
     @JavascriptInterface
@@ -200,7 +203,7 @@ public class WebAppInterface {
         prefs.edit().remove("puter_auth_token").apply();
         AuthManager.getInstance(context).logout();
         
-        // PERSISTENCE FIX: Ensure session markers are wiped from hardware immediately.
+        // PERSISTENCE FIX: Wiping session markers from hardware immediately.
         android.webkit.CookieManager.getInstance().flush();
 
         ((Activity) context).runOnUiThread(() -> {
@@ -212,6 +215,7 @@ public class WebAppInterface {
 
     @JavascriptInterface
     public boolean isLoggedIn() {
+        // Relying on the centralized manager which is synced via onAuthStatusChanged
         return AuthManager.getInstance(context).isLoggedIn();
     }
 
