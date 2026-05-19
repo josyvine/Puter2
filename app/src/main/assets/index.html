@@ -24,31 +24,31 @@
     .dropdown li { list-style: none; margin: 0; cursor: pointer; padding: 12px 20px; border-bottom: 1px solid #f0f0f0; font-size: 16px; }
     .dropdown li:last-child { border-bottom: none; }
     .dropdown li:hover { background: #eee; }
-    
+
     /* Session List styling inside dropdown */
     .session-divider { background: #f9f9f9; font-weight: bold; color: #888; font-size: 12px; padding: 5px 20px; cursor: default; }
 
     .settings-container { position: fixed; top: 60px; left: 0; width: 100%; background: #fff; z-index: 90; padding: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-bottom: 1px solid #ddd; }
-    
+
     /* --- NEW CUSTOM ACCORDION SELECTOR CSS --- */
     .custom-select-container { position: relative; width: 100%; z-index: 200; }
     .custom-select-trigger { width: 100%; padding: 12px; font-size: 16px; border-radius: 8px; border: 1px solid #bbb; background-color: #fff; cursor: pointer; display: flex; justify-content: space-between; align-items: center; height: 48px; }
     .custom-select-trigger:hover { background-color: #f9f9f9; }
     .accordion-menu { position: absolute; top: 100%; left: 0; width: 100%; background: #fff; border: 1px solid #ccc; border-radius: 8px; margin-top: 5px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); max-height: 60vh; overflow-y: auto; display: none; }
     .accordion-menu.show { display: block; }
-    
+
     .acc-section { border-bottom: 1px solid #eee; }
     .acc-section:last-child { border-bottom: none; }
     .acc-header { padding: 12px 15px; font-weight: bold; background: #f5f5f5; cursor: pointer; display: flex; justify-content: space-between; align-items: center; color: #333; }
     .acc-header:hover { background: #ebebeb; }
     .acc-content { display: none; background: #fff; }
     .acc-content.open { display: block; }
-    
+
     .acc-sub-header { padding: 10px 15px 10px 20px; font-weight: 600; color: #555; cursor: pointer; border-bottom: 1px solid #f9f9f9; display: flex; justify-content: space-between; align-items: center; }
     .acc-sub-header:hover { background: #f0f0f0; }
     .acc-sub-content { display: none; }
     .acc-sub-content.open { display: block; }
-    
+
     .model-item { padding: 12px 15px 12px 35px; cursor: pointer; border-bottom: 1px solid #f9f9f9; font-size: 15px; color: #444; }
     .model-item:last-child { border-bottom: none; }
     .model-item:hover { background: #e8f0fe; color: #1a73e8; }
@@ -61,6 +61,12 @@
     .message-content { flex-grow: 0; max-width: 85%; padding: 12px 16px; border-radius: 18px; font-size: 16px; line-height: 1.4; box-shadow: 0 1px 2px rgba(0,0,0,0.15); overflow-wrap: break-word; }
     .user-message .message-content { background-color: #007bff; color: white; border-bottom-right-radius: 4px; }
     .bot-message .message-content { background-color: #e5e5ea; color: black; border-bottom-left-radius: 4px; }
+
+    /* --- NEW FEATURE: IN-CHAT THUMBNAILS --- */
+    .chat-thumbnail-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; border-top: 1px solid rgba(0,0,0,0.1); padding-top: 8px; }
+    .user-message .chat-thumbnail-container { border-top: 1px solid rgba(255,255,255,0.3); }
+    .chat-inline-thumb { width: 60px; height: 60px; border-radius: 6px; object-fit: cover; border: 1px solid rgba(0,0,0,0.1); background: #fff; }
+    .chat-inline-file { width: 60px; height: 60px; border-radius: 6px; background: #f8f9fa; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: #1a73e8; border: 1px solid rgba(0,0,0,0.1); text-align: center; }
 
     /* --- ENHANCEMENT: ECG LOADER CSS --- */
     .loader-container { display: none; flex-direction: column; align-items: center; justify-content: center; margin: 20px 0; width: 100%; }
@@ -192,7 +198,7 @@
 
   <div class="chat-container">
     <div id="puterChatLog" class="chat-log"></div>
-    
+
     <!-- ENHANCEMENT: ECG GRAPH LOADER -->
     <div id="ecgLoader" class="loader-container">
         <svg class="ecg-graph" viewBox="0 0 100 30">
@@ -204,7 +210,7 @@
 
   <div class="chat-controls">
     <div class="search-bar-container" id="puterSearchBarContainer">
-      
+
       <!-- ENHANCEMENT: DYNAMIC FILE THUMBNAILS -->
       <div id="thumbnailArea" class="thumbnail-container"></div>
 
@@ -285,12 +291,12 @@
 
   <script>
     /* --- ENHANCEMENT: STAGED FILES STORAGE --- */
-    let stagedFiles = []; // Replaces currentImageData
+    let stagedFiles = []; 
     let customInstruction = localStorage.getItem('puter_custom_ins') || "";
-    let globalSelectedModel = ""; // Replaces the select.value logic
-    let lastAuthStatus = null; // Guard to prevent UI Blinking loops
-    let isLiveMode = false; // Persistent preference for Local vs Live models
-    
+    let globalSelectedModel = ""; 
+    let lastAuthStatus = null; 
+    let isLiveMode = false; 
+
     /* --- REQUIREMENT #1: FIXED VOICE LOGIC --- */
     let isVoiceResponseActive = false;
 
@@ -326,7 +332,7 @@
 
     document.getElementById('puterMenuButton').onclick = (e) => {
       e.stopPropagation();
-      renderDynamicSessionList(); // Refresh session list on open
+      renderDynamicSessionList(); 
       document.getElementById('puterDropdownMenu').classList.toggle('show');
     };
 
@@ -335,8 +341,6 @@
         document.getElementById(id).style.display = 'flex'; 
     }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-
-    // --- NEW CUSTOM ACCORDION UI LOGIC ---
 
     function toggleAccordionMenu() {
         document.getElementById('accordionMenu').classList.toggle('show');
@@ -451,7 +455,7 @@
     async function loadModels() {
         try {
             if (!window.AndroidInterface) return;
-            
+
             // Check preference via bridge
             isLiveMode = window.AndroidInterface.getModelSource();
             document.getElementById('modelSourceToggle').textContent = isLiveMode ? "Use Local Models" : "Enable Live Models";
@@ -460,7 +464,7 @@
                 // Try cache first
                 const cached = localStorage.getItem("puter_live_models");
                 if (cached) renderModelAccordion(JSON.parse(cached));
-                
+
                 // Fetch fresh if authenticated
                 if (typeof puter !== 'undefined' && puter.auth.isSignedIn()) {
                     loadLiveModels();
@@ -487,7 +491,7 @@
     async function loadLiveModels() {
         try {
             document.getElementById('selectedModelText').textContent = "Syncing live models...";
-            
+
             const response = await (
                 puter.ai.listModels
                     ? puter.ai.listModels()
@@ -570,7 +574,7 @@
     // 2. Main Chat Logic with ECG LOADER & MULTI-FILE PAYLOAD
     async function sendMessage(fromVoice = false) {
       console.log("Send Clicked. Voice Active: " + fromVoice);
-      
+
       // Update global state immediately based on trigger source
       isVoiceResponseActive = fromVoice;
       if(window.AndroidInterface) {
@@ -592,52 +596,50 @@
       const input = document.getElementById('puterChatInput');
       const text = input.value.trim();
       const model = globalSelectedModel; 
-      
+
       // REQUIREMENT: Must check both text and stagedFiles
       if(!text && stagedFiles.length === 0) return;
 
-      // Construct user UI display
-      let displayMessage = text;
-      if (stagedFiles.length > 0 && !text) {
-          displayMessage = "[Files Uploaded]";
-      } else if (stagedFiles.length > 0) {
-          displayMessage += " [Attached Files]";
-      }
+      // Store current files for this chat turn
+      const messageFiles = [...stagedFiles];
 
-      appendChat("User", displayMessage);
+      // RENDER USER BUBBLE WITH THUMBNAILS (No extra bracket text added to display)
+      appendChat("User", text, false, messageFiles);
+      
       input.value = "";
       handleInput(); 
 
       // REQUIREMENT: Multi-file block construction for AI payload
-      let content = [];
+      let contentBlocks = [];
       if (text) {
-          content.push({type: "text", text: text});
+          contentBlocks.push({type: "text", text: text});
       }
-      
-      stagedFiles.forEach(file => {
+
+      messageFiles.forEach(file => {
           if (file.type.startsWith('image/')) {
               // Vision content block
-              content.push({type: "image_url", image_url: {url: file.data}});
+              contentBlocks.push({type: "image_url", image_url: {url: file.data}});
           } else {
               // Text-based content block for docs/code
-              content.push({type: "text", text: `[Attached File: ${file.name}]\n${file.data}`});
+              contentBlocks.push({type: "text", text: `[Attached File: ${file.name}]\n${file.data}`});
           }
       });
 
-      // If it's a single text message and no files, keep it simple for the SDK
-      if (content.length === 1 && content[0].type === "text") {
-          content = text;
+      // FIX: CRITICAL PAYLOAD STRUCTURE FOR SDK
+      // Instead of sending the content array directly, we must wrap it in a proper message object.
+      let finalPayload = contentBlocks;
+      if (contentBlocks.length === 1 && contentBlocks[0].type === "text") {
+          finalPayload = text; // Keep simple text simple
       }
 
-      // SHOW ECG LOADER (Requirement #6)
       const loader = document.getElementById('ecgLoader');
       loader.style.display = 'flex';
       window.scrollTo(0, document.body.scrollHeight);
 
       try {
         console.log("Requesting AI Response for model: " + model);
-        const resp = await puter.ai.chat(content, {model: model, system_message: customInstruction});
-        
+        const resp = await puter.ai.chat(finalPayload, {model: model, system_message: customInstruction});
+
         // FIX 2: Apply normalization to the response content (Claude Fix)
         const botMsg = normalizeAIResponse(resp.message.content);
 
@@ -661,14 +663,14 @@
     }
 
     // 3. Append Chat with LONG PRESS & HISTORY Support
-    function appendChat(sender, text, isLoad = false) {
+    function appendChat(sender, text, isLoad = false, files = []) {
       const log = document.getElementById('puterChatLog');
       const msgId = Date.now() + Math.random();
-      
+
       const div = document.createElement('div');
       div.className = "message " + (sender === "User" ? "user-message" : "bot-message");
       div.id = "msg-" + msgId;
-      
+
       // ENHANCEMENT: LONG PRESS HANDLER
       let pressTimer;
       div.onpointerdown = (e) => {
@@ -680,13 +682,28 @@
       div.onpointercancel = () => clearTimeout(pressTimer);
       div.oncontextmenu = (e) => e.preventDefault(); // Disable system context menu
 
+      // Logic to build thumbnails HTML for inside the chat bubble
+      let filesHtml = "";
+      if(files && files.length > 0) {
+          filesHtml = `<div class="chat-thumbnail-container">`;
+          files.forEach(f => {
+              if(f.type.startsWith('image/')) {
+                  filesHtml += `<img src="${f.data}" class="chat-inline-thumb">`;
+              } else {
+                  const ext = f.type.split('/')[1] || "FILE";
+                  filesHtml += `<div class="chat-inline-file">${ext.toUpperCase().substring(0,3)}</div>`;
+              }
+          });
+          filesHtml += `</div>`;
+      }
+
       // Safe String conversion for marked.parse
-      div.innerHTML = `<div class="message-content"><b>${sender}:</b><br>${marked.parse(String(text || ""))}</div>`;
+      div.innerHTML = `<div class="message-content"><b>${sender}:</b><br>${marked.parse(String(text || ""))}${filesHtml}</div>`;
       log.appendChild(div);
-      
+
       // Persist to history if it's a real chat turn
       if(!isLoad && (sender === "User" || sender === "Bot")) {
-          chatHistory.push({sender, text, id: "msg-" + msgId});
+          chatHistory.push({sender, text, id: "msg-" + msgId, files: files});
           /* --- REQUIREMENT #3: PERSIST PER SESSION ID --- */
           localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
       }
@@ -699,11 +716,11 @@
         activeMessageContext = { text, id };
         const menu = document.getElementById('customContextMenu');
         menu.style.display = 'block';
-        
+
         // Position near finger
         let x = e.clientX;
         let y = e.clientY;
-        
+
         // Overflow check
         if(x + 150 > window.innerWidth) x -= 150;
         if(y + 150 > window.innerHeight) y -= 150;
@@ -726,7 +743,7 @@
         } else if(action === 'read') {
             if(window.AndroidInterface) window.AndroidInterface.speak(text);
         } else if(action === 'delete') {
-            
+
             // REQUIREMENT: Stop AI speech if deleted
             if(window.AndroidInterface) window.AndroidInterface.stopSpeaking();
 
@@ -755,7 +772,7 @@
     }
 
     function loadSavedHistory() {
-        chatHistory.forEach(item => appendChat(item.sender, item.text, true));
+        chatHistory.forEach(item => appendChat(item.sender, item.text, true, item.files || []));
     }
 
     /* --- REQUIREMENT #3: DYNAMIC SESSION LOGIC WITH DELETE --- */
@@ -769,7 +786,7 @@
                 keys.push(key.replace('puter_chat_history_', ''));
             }
         }
-        
+
         // Sort sessions by date (ID is timestamp)
         keys.sort((a, b) => b - a);
 
@@ -779,7 +796,7 @@
         keys.forEach((id, index) => {
             const li = document.createElement('li');
             li.textContent = `Session ${keys.length - index}`;
-            
+
             // REQUIREMENT: Long-press deletion logic
             let sessionPressTimer;
             li.onpointerdown = (e) => {
@@ -797,7 +814,7 @@
             };
             li.onpointerup = () => clearTimeout(sessionPressTimer);
             li.onpointercancel = () => clearTimeout(sessionPressTimer);
-            
+
             li.onclick = () => loadSession(id);
             container.appendChild(li);
         });
@@ -832,7 +849,7 @@
     /* --- FEATURE ENHANCEMENT: FILE PICKER RESULT HANDLER --- */
     window.onImageResult = (base64) => {
       console.log("New File/Image Data Received via Bridge");
-      
+
       const fileName = "Upload_" + stagedFiles.length;
       // Get MIME type from the Data URI
       const match = base64.match(/^data:([^;]+);base64,/);
@@ -931,7 +948,7 @@
         if (logged === lastAuthStatus) return;
         lastAuthStatus = logged;
         document.getElementById('authOption').textContent = logged ? "Sign Out" : "Sign In";
-        
+
         // Automatically fetch live models on sign-in if enabled
         if (logged && isLiveMode) loadLiveModels();
 
@@ -965,7 +982,7 @@
       // Create a new ID and reset UI without deleting data
       currentSessionId = Date.now().toString();
       localStorage.setItem('puter_current_session_id', currentSessionId);
-      
+
       document.getElementById('puterChatLog').innerHTML = '';
       chatHistory = [];
       clearFiles();
@@ -976,10 +993,10 @@
     // Execute immediately on load
     window.onload = () => {
         console.log("Page Lifecycle: ONLOAD on Secure Origin");
-        
+
         // FIX: Load Models IMMEDIATELY before waiting for SDK
         loadModels();
-        
+
         syncAuthSession();
         loadSavedHistory();
         document.getElementById('customInput').value = customInstruction;
