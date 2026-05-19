@@ -10,6 +10,7 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.Toast;
 import android.util.Log;
+import android.webkit.CookieManager;
 
 import java.util.Locale;
 
@@ -18,6 +19,7 @@ import java.util.Locale;
  * Fulfills all requirements for native TTS, barge-in, full-screen voice agent,
  * and authentication persistence.
  * UPDATED: Aligned with WebViewAssetLoader architecture and diagnostic logging.
+ * PERSISTENCE UPDATE: Added hardware-level cookie synchronization logic.
  */
 public class WebAppInterface {
 
@@ -149,11 +151,15 @@ public class WebAppInterface {
 
     /**
      * Syncs the Puter SDK's real-time auth status with the Native AuthManager.
+     * PERSISTENCE FIX: Forces hardware-level cookie flush to ensure session stability.
      */
     @JavascriptInterface
     public void onAuthStatusChanged(boolean isSignedIn) {
         nativeLog("Syncing Auth Status: " + (isSignedIn ? "AUTHENTICATED" : "NOT_AUTHENTICATED"), "native");
         AuthManager.getInstance(context).setLoggedIn(isSignedIn);
+        
+        // PERSISTENCE FIX: Commit cookies to disk immediately when status changes.
+        android.webkit.CookieManager.getInstance().flush();
     }
     
     /**
@@ -193,6 +199,10 @@ public class WebAppInterface {
         nativeLog("Processing Global Sign-Out Request...", "native");
         prefs.edit().remove("puter_auth_token").apply();
         AuthManager.getInstance(context).logout();
+        
+        // PERSISTENCE FIX: Ensure session markers are wiped from hardware immediately.
+        android.webkit.CookieManager.getInstance().flush();
+
         ((Activity) context).runOnUiThread(() -> {
             Toast.makeText(context, "Signed out of Puter", Toast.LENGTH_SHORT).show();
             // Origin-safe reload
