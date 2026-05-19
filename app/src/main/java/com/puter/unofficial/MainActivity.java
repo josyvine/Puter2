@@ -29,6 +29,9 @@ import java.util.List;
  * MainActivity: The primary host for the Puter Unofficial WebView.
  * Handles permissions, hardware-level WebView configuration, 
  * and communication with the native Voice Agent Activity.
+ * 
+ * UPDATED: Fixed File Picker logic to ensure Bridge-initiated uploads 
+ * are converted to Base64 and sent to the stagedFiles UI.
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -43,7 +46,7 @@ public class MainActivity extends AppCompatActivity {
 
     private final static int FILE_CHOOSER_RESULT_CODE = 1;
     private final static int PERMISSION_REQUEST_CODE = 100;
-    
+
     // Logic Guard to prevent the UI Blinking Loop during Auth/Reloads
     private boolean isRefreshing = false;
 
@@ -71,7 +74,7 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setDatabaseEnabled(true);
         webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         webSettings.setJavaScriptCanOpenWindowsAutomatically(true);
-        
+
         // CRITICAL FOR AUTH: Allows Puter SDK to open the Sign-In Popup Window
         webSettings.setSupportMultipleWindows(true); 
 
@@ -146,7 +149,7 @@ public class MainActivity extends AppCompatActivity {
             }
         };
         IntentFilter filter = new IntentFilter("PUTER_VOICE_INPUT");
-        
+
         // Android 13+ compatibility for exported receivers
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(voiceReceiver, filter, Context.RECEIVER_EXPORTED);
@@ -221,10 +224,35 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * UPDATED: Handles both standard WebChromeClient uploads and Bridge-initiated uploads.
+     */
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        // Requirement #3: Delegate file picker result back to ChromeClient
+        
+        // 1. Logic for Bridge-initiated File Upload (Feature Enhancement #1)
+        if (requestCode == FILE_CHOOSER_RESULT_CODE && resultCode == RESULT_OK && data != null) {
+            Uri fileUri = data.getData();
+            if (fileUri != null) {
+                Log.d("MainActivity", "File selected via Bridge: " + fileUri.toString());
+                
+                // Convert to Base64 Data URI
+                String base64Data = FileUtils.fileToDataUri(this, fileUri);
+                
+                if (base64Data != null) {
+                    // Inject the Base64 string directly into the JS stagedFiles array
+                    webView.post(() -> {
+                        webView.evaluateJavascript(
+                            "if(window.onImageResult){ window.onImageResult('" + base64Data + "'); }", 
+                            null
+                        );
+                    });
+                }
+            }
+        }
+
+        // 2. Original Requirement #3: Delegate standard file picker result back to ChromeClient
         if (myWebChromeClient != null) {
             myWebChromeClient.onActivityResult(requestCode, resultCode, data);
         }
@@ -238,12 +266,12 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> {
             if (webView != null && !isRefreshing) {
                 isRefreshing = true;
-                
+
                 // Requirement #4: Persistence Fix. Ensure cookies are saved before reload.
                 CookieManager.getInstance().flush();
-                
+
                 webView.reload();
-                
+
                 // Release reload guard after 3 seconds to prevent UI flicker
                 webView.postDelayed(() -> isRefreshing = false, 3000);
             }
