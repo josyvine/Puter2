@@ -118,7 +118,7 @@ public class VoiceAgentActivity extends AppCompatActivity {
             public void onBeginningOfSpeech() {
                 // BARGE-IN: If user talks while AI is speaking, kill the AI speech immediately
                 if (tts != null && tts.isSpeaking()) {
-                    Log.d(TAG, "Barge-in detected: Stopping TTS");
+                    Log.d(TAG, "Voice detected - stopping AI speech immediately");
                     tts.stop();
                     isAIspeaking = false;
                 }
@@ -138,8 +138,9 @@ public class VoiceAgentActivity extends AppCompatActivity {
             @Override
             public void onError(int error) {
                 isListening = false;
-                // Auto-restart listening on timeout errors to maintain "Always Listening"
+                // REQUIREMENT: Auto-restart listening on timeouts/silence to maintain "Always On"
                 if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || error == SpeechRecognizer.ERROR_NO_MATCH) {
+                    Log.d(TAG, "Mic timeout/No match - restarting listener...");
                     startListening();
                 } else {
                     tvStatus.setText("Tap mic to try again");
@@ -161,10 +162,11 @@ public class VoiceAgentActivity extends AppCompatActivity {
             public void onPartialResults(Bundle partialResults) {
                 ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 if (matches != null && !matches.isEmpty()) {
-                    tvTranscript.setText(matches.get(0));
+                    String partial = matches.get(0);
+                    tvTranscript.setText(partial);
                     
-                    // Live Barge-in: Stop TTS as soon as partial speech is recognized
-                    if (tts != null && tts.isSpeaking()) {
+                    // Live Barge-in: Stop AI as soon as user starts speaking first few words
+                    if (tts != null && tts.isSpeaking() && partial.trim().length() > 0) {
                         tts.stop();
                         isAIspeaking = false;
                     }
@@ -221,6 +223,8 @@ public class VoiceAgentActivity extends AppCompatActivity {
                 speechRecognizer.startListening(recognizerIntent);
             } catch (Exception e) {
                 Log.e(TAG, "Error starting recognizer: " + e.getMessage());
+                // Fallback attempt
+                isListening = false;
             }
         }
     }
@@ -229,7 +233,10 @@ public class VoiceAgentActivity extends AppCompatActivity {
         if (isListening) {
             speechRecognizer.stopListening();
         } else {
-            if (tts.isSpeaking()) tts.stop();
+            if (tts.isSpeaking()) {
+                tts.stop();
+                isAIspeaking = false;
+            }
             startListening();
         }
     }
@@ -237,7 +244,10 @@ public class VoiceAgentActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         if (aiResponseReceiver != null) unregisterReceiver(aiResponseReceiver);
-        if (speechRecognizer != null) speechRecognizer.destroy();
+        if (speechRecognizer != null) {
+            speechRecognizer.cancel();
+            speechRecognizer.destroy();
+        }
         if (tts != null) {
             tts.stop();
             tts.shutdown();
