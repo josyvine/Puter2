@@ -391,20 +391,22 @@
       }
     }
 
-    // 2. Main Chat Logic with AUTH GUARD AND PERSISTENCE RETRY
+    // 2. Main Chat Logic with CORE AUTH PERSISTENCE FIX
     async function sendMessage() {
       console.log("Send Clicked. Checking Puter Auth...");
       
-      // PERSISTENCE FIX: If initial check fails, wait 500ms for cookies to settle and check again.
-      if (typeof puter === 'undefined' || !puter.ready || !puter.auth.isSignedIn()) {
-          console.warn("Auth Check initial fail. Retrying in 500ms...");
-          await new Promise(r => setTimeout(r, 500));
+      // PERSISTENCE FIX: Replace reliably check for existence of puter.auth
+      // and ensure the SDK is fully initialized before requesting state.
+      if (typeof puter === 'undefined' || !puter.auth || !puter.auth.isSignedIn()) {
+          console.warn("Auth Check initial fail. Waiting for cookie/session settlement...");
+          // Small buffer to allow asynchronous session recovery on secure origin
+          await new Promise(r => setTimeout(r, 600));
       }
 
-      if (typeof puter === 'undefined' || !puter.ready || !puter.auth.isSignedIn()) {
-        console.error("Auth Check Final Failed. User is not signed in.");
+      if (typeof puter === 'undefined' || !puter.auth || !puter.auth.isSignedIn()) {
+        console.error("Auth Check Final Failed. Real session not detected.");
         alert("Please sign in to start chatting with Puter.");
-        handleAuthAction(true); // Flagged as true to prevent accidental sign-out loop
+        handleAuthAction(true); // Flag prevents accidental sign-out cycle
         return;
       }
 
@@ -464,25 +466,27 @@
       img.style.display = 'block';
     };
 
-    // 4. SDK-DRIVEN AUTHENTICATION WITH ACCIDENTAL SIGN-OUT GUARD
+    // 4. SDK-DRIVEN AUTHENTICATION WITH CORE BUG FIXES
     async function handleAuthAction(fromSendError = false) {
         try {
-            if (typeof puter === 'undefined') {
+            if (typeof puter === 'undefined' || !puter.auth) {
                 alert("Puter SDK is loading, please wait a moment.");
                 return;
             }
             if (puter.auth.isSignedIn()) {
-                // GUARD: If this was triggered by a Send Error, do NOT sign out.
+                // CORE FIX: Prevent the logic from accidentally signing out the user
+                // if they are in the middle of a session transition.
                 if (fromSendError) {
-                    console.log("Accidental Sign-Out Guard triggered. Aborting.");
+                    console.log("Accidental Sign-Out Guard: Blocking logout during send check.");
                     return;
                 }
-                console.log("Signing Out...");
+                console.log("User requested Sign Out...");
                 await puter.auth.signOut();
                 appendChat("System", "You have been signed out.");
                 updateAuthUI();
             } else {
                 console.log("Triggering Puter SDK SignIn popup...");
+                // Note: Popup closing is managed by MyWebChromeClient with redirect delay.
                 await puter.auth.signIn(); 
             }
         } catch (error) {
@@ -491,26 +495,36 @@
         }
     }
 
+    /**
+     * CORE FIX: Native Token injection is removed to allow the Secure Origin 
+     * to manage session headers natively. We check for a record but do not override.
+     */
     function syncAuthSession() {
-        console.log("DIAGNOSTIC: Origin is " + window.location.origin);
+        console.log("Origin Check: " + window.location.origin);
         if (window.AndroidInterface && window.AndroidInterface.getSavedAuthToken) {
             const token = window.AndroidInterface.getSavedAuthToken();
             if (token) {
-                console.log("DIAGNOSTIC: Native record found. Allowing SDK to restore session.");
+                console.log("DIAGNOSTIC: Native session record exists. Allowing SDK to verify.");
             }
         }
     }
 
+    /**
+     * MASTER UI UPDATE: This is the single source of truth for auth UI state.
+     * It synchronizes the Native AuthManager only AFTER the SDK verifies the session.
+     */
     function updateAuthUI() {
-      if (typeof puter !== 'undefined' && window.AndroidInterface) {
+      if (typeof puter !== 'undefined' && puter.auth && window.AndroidInterface) {
         const logged = puter.auth.isSignedIn();
-        console.log("Auth UI Sync. Logged In: " + logged);
+        console.log("Auth State Synchronized: " + logged);
 
+        // Logic guard prevents redundant bridge calls and UI flickering
         if (logged === lastAuthStatus) return;
         lastAuthStatus = logged;
 
         document.getElementById('authOption').textContent = logged ? "Sign Out" : "Sign In";
         
+        // Sync the mirror state in Android SharedPreferences
         window.AndroidInterface.onAuthStatusChanged(logged);
       }
     }
@@ -549,20 +563,21 @@
 
     // Execute immediately on load
     window.onload = () => {
-        console.log("Page Lifecycle: ONLOAD");
+        console.log("Page Lifecycle: ONLOAD on Secure Origin");
         
         syncAuthSession();
         loadModels();
         document.getElementById('customInput').value = customInstruction;
 
         if (typeof puter !== 'undefined') {
-            console.log("Puter SDK detected. Waiting for ready...");
+            console.log("Puter SDK detected. Waiting for ready signal...");
             puter.ready(() => {
-                console.log("Puter SDK is READY. Validating Secure Session.");
+                console.log("Puter SDK Ready. Finalizing Session UI...");
+                // Force a status sync once the SDK confirms the origin state
                 updateAuthUI();
             });
         } else {
-            console.error("CRITICAL: Puter.js SDK failed to load script!");
+            console.error("CRITICAL: Puter.js SDK failed to load on this origin!");
         }
     };
   </script>
