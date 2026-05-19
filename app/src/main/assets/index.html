@@ -206,17 +206,17 @@
       <input type="text" id="puterChatInput" placeholder="Ask Puter..." oninput="handleInput()" autocomplete="off">
 
       <!-- 2. Microphone: Right side, left of TTS -->
-      <button class="action-button mic-btn-cls" onclick="window.AndroidInterface.startListening()">
+      <button class="action-button mic-btn-cls" onclick="triggerMic()">
         <span class="material-symbols-outlined">mic</span>
       </button>
 
       <!-- 3. TTS/Voice Agent: Extreme Right -->
-      <button class="action-button voice-agent-btn-cls" onclick="window.AndroidInterface.startVoiceAgent()">
+      <button class="action-button voice-agent-btn-cls" onclick="triggerVoiceAgent()">
         <span class="material-symbols-outlined">auto_awesome</span>
       </button>
 
       <!-- 4. Send Button: Replaces Mic and TTS when text is present -->
-      <button class="action-button send-btn-cls" id="sendBtn" onclick="sendMessage()">
+      <button class="action-button send-btn-cls" id="sendBtn" onclick="sendMessage(false)">
         <span class="material-symbols-outlined">send</span>
       </button>
     </div>
@@ -277,7 +277,7 @@
     let lastAuthStatus = null; // Guard to prevent UI Blinking loops
     let isLiveMode = false; // Persistent preference for Local vs Live models
     
-    /* --- REQUIREMENT #1: VOICE FLAG FOR LIVELY TTS --- */
+    /* --- REQUIREMENT #1: FIXED VOICE LOGIC --- */
     let isVoiceResponseActive = false;
 
     /* --- REQUIREMENT #3: MULTI-SESSION STATE --- */
@@ -535,10 +535,34 @@
         return String(content);
     }
 
+    /* --- REFINED VOICE MODE TRIGGERS --- */
+    function triggerMic() {
+        if(window.AndroidInterface) {
+            isVoiceResponseActive = true;
+            window.AndroidInterface.setVoiceMode(true);
+            window.AndroidInterface.startListening();
+        }
+    }
+
+    function triggerVoiceAgent() {
+        if(window.AndroidInterface) {
+            isVoiceResponseActive = true;
+            window.AndroidInterface.setVoiceMode(true);
+            window.AndroidInterface.startVoiceAgent();
+        }
+    }
+
     // 2. Main Chat Logic with ECG LOADER & AUTO-READ FIX
-    async function sendMessage() {
-      console.log("Send Clicked. Checking Puter Auth...");
+    // Requirement: fromVoice parameter ensures normal text isn't read aloud.
+    async function sendMessage(fromVoice = false) {
+      console.log("Send Clicked. Voice Active: " + fromVoice);
       
+      // Update global state immediately based on trigger source
+      isVoiceResponseActive = fromVoice;
+      if(window.AndroidInterface) {
+          window.AndroidInterface.setVoiceMode(fromVoice);
+      }
+
       if (typeof puter === 'undefined' || !puter.auth || !puter.auth.isSignedIn()) {
           console.warn("Auth Check initial fail. Waiting for cookie/session settlement...");
           await new Promise(r => setTimeout(r, 600));
@@ -583,6 +607,7 @@
         appendChat("Bot", botMsg);
 
         /* --- REQUIREMENT #1: LIVELY NATIVE TTS RESPONSE --- */
+        // AI only talks if the request started from a microphone/voice trigger.
         if(isVoiceResponseActive && window.AndroidInterface) {
             window.AndroidInterface.speak(botMsg);
         }
@@ -724,15 +749,15 @@
     // 4. Android Bridge Handlers
     window.onSpeechResult = (text) => {
       console.log("Speech Result Received: " + text);
-      isVoiceResponseActive = true; // REQUIREMENT #1: Trigger lively voice response
       document.getElementById('puterChatInput').value = text;
       handleInput();
-      sendMessage();
+      sendMessage(true); // Flag as voice message to trigger Lively TTS
     };
 
-    /* --- REQUIREMENT #2: CONTINUOUS INTERRUPTION --- */
+    /* --- REQUIREMENT #2: CONTINUOUS INTERRUPTION LOOP --- */
     window.onSpeechFinished = () => {
         console.log("AI speech finished. Re-opening mic for continuous conversation.");
+        // Only trigger mic return if the session is currently in Voice Mode.
         if(isVoiceResponseActive && window.AndroidInterface) {
             window.AndroidInterface.startListening();
         }
@@ -820,7 +845,7 @@
 
     /* --- REQUIREMENT #3: NEW SESSION FIX --- */
     function newSession() {
-      // Don't remove history, just create a new ID
+      // Create a new ID and reset UI without deleting data
       currentSessionId = Date.now().toString();
       localStorage.setItem('puter_current_session_id', currentSessionId);
       
