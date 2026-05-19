@@ -81,10 +81,12 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setUserAgentString(userAgent);
 
         // FIX FOR PUTER.JS AUTH: Enable Third Party Cookies for the main WebView.
-        // Without this, the session token generated in the popup will not be accessible to the main window.
+        // PERSISTENCE UPDATE: Explicitly force acceptance to bridge the popup session.
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
-        cookieManager.setAcceptThirdPartyCookies(webView, true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            cookieManager.setAcceptThirdPartyCookies(webView, true);
+        }
 
         // Ensure the WebView looks right on mobile viewports
         webSettings.setUseWideViewPort(true);
@@ -209,13 +211,14 @@ public class MainActivity extends AppCompatActivity {
     /**
      * Required by SettingsFragment to refresh the UI when the user signs out.
      * UPDATED: Added a reload guard to prevent the "Blinking UI" loop during authentication.
+     * PERSISTENCE UPDATE: Added explicit cookie flush to save session to disk before reload.
      */
     public void reloadWebView() {
         runOnUiThread(() -> {
             if (webView != null && !isRefreshing) {
                 isRefreshing = true;
                 
-                // Ensure cookies are synced before reload to maintain the session handshake
+                // PERSISTENCE FIX: Ensure cookies are flushed to storage before the SDK tries to re-read them.
                 CookieManager.getInstance().flush();
                 
                 webView.reload();
