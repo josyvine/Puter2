@@ -210,7 +210,7 @@
       <li id="usageDisplay" class="usage-divider">
         GENERATION USAGE
         <span class="usage-val" id="lastTokenVal">Last: 0 tokens</span>
-        <span class="usage-val" id="lastCreditVal">Cost: 0.00 credits</span>
+        <span class="usage-val" id="lastCreditVal">Cost: $0.0000</span>
       </li>
 
       <!-- REQUIREMENT #3: DYNAMIC SESSION LIST INJECTED HERE -->
@@ -787,11 +787,17 @@
         // Iterate over the stream response
         for await (const chunk of streamResp) {
             
-            // CAPTURE USAGE DATA IF PRESENT IN CHUNK
-            if(chunk.usage) updateUsageUI(chunk.usage);
+            // 1. GATEKEEPER: Check for usage data first
+            if(chunk.usage) {
+                // Update the menu UI
+                updateUsageUI(chunk.usage);
+                // IMPORTANT: Continue to next iteration so this chunk isn't treated as text
+                continue;
+            }
 
-            // Extract the stream chunk robustly depending on payload shape
-            const chunkText = chunk?.text || chunk?.message?.content || normalizeAIResponse(chunk) || "";
+            // 2. Extract text safely (only if it's actually content)
+            const chunkText = chunk?.text || chunk?.message?.content || "";
+            
             if (chunkText) {
                 fullBotText += chunkText;
                 
