@@ -8,6 +8,7 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.util.Log;
+import android.net.Uri;
 
 import androidx.webkit.WebViewAssetLoader;
 
@@ -46,11 +47,102 @@ public class PuterWebViewClient extends WebViewClient {
 
     /**
      * Intercepts requests to the virtual domain and serves them from local assets.
+     * Also intercepts external HTTP/HTTPS GET requests to strip out frame-blocking headers
+     * (X-Frame-Options, Content-Security-Policy) to fix net::ERR_BLOCKED_BY_RESPONSE errors.
      */
     @Override
     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-        // This routes https://appassets.androidplatform.net/assets/... to the assets folder
-        return assetLoader.shouldInterceptRequest(request.getUrl());
+        // 1. First, check if this routes https://appassets.androidplatform.net/assets/... to the assets folder
+        WebResourceResponse localResponse = assetLoader.shouldInterceptRequest(request.getUrl());
+        if (localResponse != null) {
+            return localResponse;
+        }
+
+        // 2. Second, intercept external GET requests to bypass iframe framing blockages
+        Uri uri = request.getUrl();
+        if (uri != null) {
+            String urlStr = uri.toString();
+            if ((urlStr.startsWith("http://") || urlStr.startsWith("https://")) 
+                    && !urlStr.startsWith("https://appassets.androidplatform.net/")
+                    && "GET".equalsIgnoreCase(request.getMethod())) {
+                try {
+                    java.net.URL url = new java.net.URL(urlStr);
+                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("GET");
+
+                    // Copy original request headers from WebView to bypass anti-hotlinking / anti-bot blocks
+                    if (request.getRequestHeaders() != null) {
+                        for (java.util.Map.Entry<String, String> entry : request.getRequestHeaders().entrySet()) {
+                            conn.setRequestProperty(entry.getKey(), entry.getValue());
+                        }
+                    }
+
+                    // Standard timeouts
+                    conn.setConnectTimeout(10000);
+                    conn.setReadTimeout(10000);
+                    conn.setInstanceFollowRedirects(true);
+
+                    int statusCode = conn.getResponseCode();
+                    String responseMessage = conn.getResponseMessage();
+                    String mimeType = conn.getContentType();
+                    String encoding = conn.getContentEncoding();
+
+                    // Extract exact mimeType and encoding from Content-Type header string
+                    if (mimeType != null && mimeType.contains(";")) {
+                        String[] parts = mimeType.split(";");
+                        mimeType = parts[0].trim();
+                        for (int i = 1; i < parts.length; i++) {
+                            if (parts[i].trim().toLowerCase().startsWith("charset=")) {
+                                encoding = parts[i].trim().substring(8).trim();
+                                break;
+                            }
+                        }
+                    }
+
+                    if (mimeType == null || mimeType.isEmpty()) {
+                        mimeType = "text/html";
+                    }
+                    if (encoding == null || encoding.isEmpty()) {
+                        encoding = "UTF-8";
+                    }
+
+                    // Copy response headers and aggressively strip out framing restrictors
+                    java.util.Map<String, String> responseHeaders = new java.util.HashMap<>();
+                    for (java.util.Map.Entry<String, java.util.List<String>> header : conn.getHeaderFields().entrySet()) {
+                        if (header.getKey() != null) {
+                            String key = header.getKey().toLowerCase();
+                            if (key.equals("x-frame-options") || key.equals("frame-options") || key.equals("content-security-policy")) {
+                                Log.d(TAG, "Bypass: Stripped restrictive framing header: " + header.getKey() + " from " + urlStr);
+                                continue; // Purge header
+                            }
+                            java.util.List<String> values = header.getValue();
+                            if (values != null && !values.isEmpty()) {
+                                responseHeaders.put(header.getKey(), values.get(0));
+                            }
+                        }
+                    }
+
+                    // Inject relaxed frame policies to make WebView's frame subresources load flawlessly
+                    responseHeaders.put("Access-Control-Allow-Origin", "*");
+                    responseHeaders.put("Access-Control-Allow-Methods", "GET, OPTIONS");
+
+                    java.io.InputStream stream = conn.getInputStream();
+
+                    return new WebResourceResponse(
+                        mimeType,
+                        encoding,
+                        statusCode,
+                        responseMessage != null ? responseMessage : "OK",
+                        responseHeaders,
+                        stream
+                    );
+                } catch (Exception e) {
+                    Log.e(TAG, "Bypass Error: Failed to strip framing restrictions for -> " + urlStr, e);
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
