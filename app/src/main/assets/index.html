@@ -79,6 +79,12 @@
     .model-item:last-child { border-bottom: none; }
     .model-item:hover { background: #e8f0fe; color: #1a73e8; }
 
+    /* --- ENHANCEMENT: IMAGE GENERATION UI --- */
+    .aspect-ratio-container { display: none; margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px; }
+    .aspect-ratio-select { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; background: #f9f9f9; font-size: 14px; outline: none; cursor: pointer; }
+    .ai-generated-image { width: 100%; max-width: 500px; border-radius: 16px; margin-top: 10px; border: 1px solid #ddd; display: block; }
+    .download-btn { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; padding: 8px 16px; border-radius: 12px; background: #1a73e8; color: white; text-decoration: none; font-size: 14px; font-weight: bold; }
+
     .chat-container { display: flex; flex-direction: column; flex: 1; width: 100%; position: relative; z-index: 5; padding: 15px; margin-top: 130px; margin-bottom: 120px; }
     .chat-log { flex: 1; width: 100%; }
 
@@ -253,6 +259,18 @@
          <!-- Dynamically populated by JS -->
       </div>
     </div>
+
+    <!-- ENHANCEMENT: ASPECT RATIO DROPDOWN -->
+    <div id="aspectRatioContainer" class="aspect-ratio-container">
+        <select id="aspectRatioSelect" class="aspect-ratio-select">
+           <option value="1:1">1:1 Square (Profile/Logo)</option>
+           <option value="16:9">16:9 Landscape (YouTube/Wallpapers)</option>
+           <option value="9:16">9:16 Portrait (Reels/Shorts)</option>
+           <option value="4:3">4:3 Classic</option>
+           <option value="3:4">3:4 Portrait</option>
+           <option value="21:9">21:9 Cinematic</option>
+        </select>
+    </div>
   </div>
 
   <div class="chat-container">
@@ -263,7 +281,7 @@
         <svg class="ecg-graph" viewBox="0 0 100 30">
             <path class="ecg-path" d="M0,15 L25,15 L30,5 L35,25 L40,15 L60,15 L65,0 L75,30 L80,15 L100,15" />
         </svg>
-        <div class="loader-text">AI is answering...</div>
+        <div id="loaderText" class="loader-text">AI is answering...</div>
     </div>
   </div>
 
@@ -421,6 +439,7 @@
     let stagedFiles = []; 
     let customInstruction = localStorage.getItem('puter_custom_ins') || "";
     let globalSelectedModel = ""; 
+    let globalModelObject = null; // Store full object for metadata checks
     let lastAuthStatus = null; 
     let isLiveMode = false; 
 
@@ -496,11 +515,23 @@
         el.classList.toggle('open');
     }
 
-    function selectModel(id, name) {
+    /* ENHANCEMENT: UPDATED SELECT MODEL TO DETECT IMAGE GENERATION */
+    function selectModel(id, name, modelObj = null) {
         globalSelectedModel = id;
+        globalModelObject = modelObj;
         console.log("Model Selected: " + id);
+        
         // Update the UI trigger text to show what was selected
         document.getElementById('selectedModelText').textContent = name || id;
+        
+        // --- IMAGE MODEL UI LOGIC ---
+        const ratioContainer = document.getElementById("aspectRatioContainer");
+        if (modelObj && modelObj.categories && modelObj.categories.includes("image_generation")) {
+            ratioContainer.style.display = "block";
+        } else {
+            ratioContainer.style.display = "none";
+        }
+
         // Close the menu
         document.getElementById('accordionMenu').classList.remove('show');
     }
@@ -552,7 +583,9 @@
         allModels.forEach(m => {
             const safeName = (m.name || m.id).replace(/'/g, "\\'");
             const cats = m.categories ? ` (${m.categories.join(', ')})` : '';
-            html += `<div class="model-item" onclick="selectModel('${m.id}', '${safeName}')">${m.name || m.id}${cats}</div>`;
+            // Safe JSON stringify for click handler
+            const modelStr = JSON.stringify(m).replace(/'/g, "&apos;");
+            html += `<div class="model-item" onclick='selectModel("${m.id}", "${safeName}", ${modelStr})'>${m.name || m.id}${cats}</div>`;
         });
         html += `   </div></div>`;
 
@@ -566,7 +599,8 @@
                      <div id="${pId}" class="acc-sub-content">`;
             providers[provider].forEach(m => {
                 const safeName = (m.name || m.id).replace(/'/g, "\\'");
-                html += `<div class="model-item" onclick="selectModel('${m.id}', '${safeName}')">${m.name || m.id}</div>`;
+                const modelStr = JSON.stringify(m).replace(/'/g, "&apos;");
+                html += `<div class="model-item" onclick='selectModel("${m.id}", "${safeName}", ${modelStr})'>${m.name || m.id}</div>`;
             });
             html += `</div>`;
         }
@@ -582,7 +616,8 @@
                      <div id="${cId}" class="acc-sub-content">`;
             allModels.filter(m => m.categories && m.categories.includes(cat)).forEach(m => {
                 const safeName = (m.name || m.id).replace(/'/g, "\\'");
-                html += `<div class="model-item" onclick="selectModel('${m.id}', '${safeName}')">${m.name || m.id}</div>`;
+                const modelStr = JSON.stringify(m).replace(/'/g, "&apos;");
+                html += `<div class="model-item" onclick='selectModel("${m.id}", "${safeName}", ${modelStr})'>${m.name || m.id}</div>`;
             });
             html += `</div>`;
         });
@@ -590,7 +625,7 @@
 
         document.getElementById('accordionMenu').innerHTML = html;
         if(allModels.length > 0 && !globalSelectedModel) {
-            selectModel(allModels[0].id, allModels[0].name || allModels[0].id);
+            selectModel(allModels[0].id, allModels[0].name || allModels[0].id, allModels[0]);
         }
     }
 
@@ -740,6 +775,33 @@
         console.log(`PERSISTED USAGE: Total Tokens=${sessionTotalTokens}`);
     }
 
+    /* --- ENHANCEMENT: IMAGE RENDERER --- */
+    function renderImage(src){
+       const log = document.getElementById('puterChatLog');
+       const msgId = "img-" + Date.now();
+       
+       const div = document.createElement("div");
+       div.className = "message bot-message";
+       div.id = msgId;
+
+       div.innerHTML = `
+          <div class="message-content">
+              <b>Bot:</b><br>
+              <img src="${src}" class="ai-generated-image">
+              <a href="${src}" download="generated-image.png" class="download-btn">
+                 <span class="material-symbols-outlined">download</span> Download Image
+              </a>
+          </div>
+       `;
+       log.appendChild(div);
+       
+       // Persist to history
+       chatHistory.push({sender: "Bot", text: "[Image Generated]", type: "image", src: src, id: msgId});
+       localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
+       
+       window.scrollTo(0, document.body.scrollHeight);
+    }
+
     // 2. Main Chat Logic with ECG LOADER & MULTI-FILE PAYLOAD
     async function sendMessage(fromVoice = false) {
       console.log("Send Clicked. Voice Active: " + fromVoice);
@@ -763,7 +825,7 @@
       }
 
       const input = document.getElementById('puterChatInput');
-      const text = input.value.trim();
+      let text = input.value.trim();
       const model = globalSelectedModel; 
 
       // REQUIREMENT: Must check both text and stagedFiles
@@ -777,6 +839,18 @@
       
       input.value = "";
       handleInput(); 
+
+      // --- ENHANCEMENT: IMAGE MODEL LOGIC (POINTS 1, 5, 6) ---
+      const isImageModel = globalModelObject?.categories?.includes("image_generation");
+      const streamMode = !isImageModel;
+
+      if(isImageModel) {
+          const ratio = document.getElementById("aspectRatioSelect").value;
+          text = text + ". Aspect ratio: " + ratio + " cinematic landscape.";
+          document.getElementById("loaderText").textContent = "AI is generating image...";
+      } else {
+          document.getElementById("loaderText").textContent = "AI is answering...";
+      }
 
       // REQUIREMENT: Multi-file block construction for AI payload
       let contentBlocks = [];
@@ -812,75 +886,72 @@
       try {
         console.log("Requesting AI Response for model: " + model);
         
-        // --- ENHANCEMENT: LIVELY STREAMING GENERATION ---
-        const streamResp = await puter.ai.chat(finalPayload, {model: model, system_message: customInstruction, stream: true});
-        
-        let fullBotText = "";
-        // FIX: Remove decimal points from ID to prevent querySelector syntax error
-        const msgId = "msg-" + Date.now() + "_" + Math.floor(Math.random() * 1000000);
-        
-        const log = document.getElementById('puterChatLog');
-        const div = document.createElement('div');
-        div.className = "message bot-message";
-        div.id = msgId;
+        // --- BRANCHED LOGIC: IMAGE VS TEXT (POINTS 7, 10) ---
+        if(isImageModel) {
+            const aspectRatio = document.getElementById("aspectRatioSelect").value;
+            const response = await puter.ai.chat(finalPayload, {
+                model: model,
+                system_message: customInstruction,
+                stream: false,
+                aspect_ratio: aspectRatio
+            });
 
-        // Apply long press logic dynamically to the streaming bubble
-        let pressTimer;
-        div.onpointerdown = (e) => {
-            pressTimer = window.setTimeout(() => {
-                showContextMenu(e, fullBotText, msgId);
-            }, 700);
-        };
-        div.onpointerup = () => clearTimeout(pressTimer);
-        div.onpointercancel = () => clearTimeout(pressTimer);
-        div.oncontextmenu = (e) => e.preventDefault();
+            loader.style.display = 'none';
+            console.log("Image response:", response);
 
-        // Inject the placeholder container for streaming text
-        div.innerHTML = `<div class="message-content"><b>Bot:</b><br><span id="stream-content-${msgId}"></span></div>`;
-        log.appendChild(div);
-
-        const targetSpan = document.getElementById(`stream-content-${msgId}`);
-
-        // Iterate over the stream response
-        for await (const chunk of streamResp) {
-            
-            // 1. GATEKEEPER: Check for usage data first
-            if(chunk.usage) {
-                // Update the menu UI
-                updateUsageUI(chunk.usage);
-                // IMPORTANT: Continue to next iteration so this chunk isn't treated as text
-                continue;
+            // POINT 7: Parse image formats
+            let imgSrc = null;
+            if(response.image_url) imgSrc = response.image_url;
+            else if(response.images && response.images[0]) imgSrc = response.images[0].url || response.images[0];
+            else if(response.b64_json) imgSrc = "data:image/png;base64," + response.b64_json;
+            else if(Array.isArray(response.message?.content)) {
+                const imgBlock = response.message.content.find(c => c.type === "image_url");
+                if(imgBlock) imgSrc = imgBlock.image_url.url;
             }
 
-            // 2. Extract text safely (only if it's actually content)
-            const chunkText = chunk?.text || chunk?.message?.content || "";
+            if(imgSrc) renderImage(imgSrc);
+            else appendChat("Bot", "Error: AI returned no image data.");
+
+        } else {
+            // --- ENHANCEMENT: LIVELY STREAMING GENERATION ---
+            const streamResp = await puter.ai.chat(finalPayload, {model: model, system_message: customInstruction, stream: true});
             
-            if (chunkText) {
-                fullBotText += chunkText;
-                
-                // Parse markdown live using our custom renderer with embedded Highlight.js
-                targetSpan.innerHTML = marked.parse(fullBotText);
-                
-                // Redundant safety check to ensure standard blocks without explicit languages are caught
-                document.querySelectorAll(`#stream-content-${msgId} pre code:not(.hljs)`).forEach((block) => {
-                    hljs.highlightElement(block);
-                });
+            let fullBotText = "";
+            const msgId = "msg-" + Date.now() + "_" + Math.floor(Math.random() * 1000000);
+            const log = document.getElementById('puterChatLog');
+            const div = document.createElement('div');
+            div.className = "message bot-message";
+            div.id = msgId;
 
-                // Auto-scroll track to bottom
-                window.scrollTo(0, document.body.scrollHeight);
+            // Apply long press logic
+            let pressTimer;
+            div.onpointerdown = (e) => { pressTimer = window.setTimeout(() => { showContextMenu(e, fullBotText, msgId); }, 700); };
+            div.onpointerup = () => clearTimeout(pressTimer);
+            div.oncontextmenu = (e) => e.preventDefault();
+
+            div.innerHTML = `<div class="message-content"><b>Bot:</b><br><span id="stream-content-${msgId}"></span></div>`;
+            log.appendChild(div);
+
+            const targetSpan = document.getElementById(`stream-content-${msgId}`);
+
+            for await (const chunk of streamResp) {
+                if(chunk.usage) { updateUsageUI(chunk.usage); continue; }
+                const chunkText = chunk?.text || chunk?.message?.content || "";
+                if (chunkText) {
+                    fullBotText += chunkText;
+                    targetSpan.innerHTML = marked.parse(fullBotText);
+                    document.querySelectorAll(`#stream-content-${msgId} pre code:not(.hljs)`).forEach((block) => { hljs.highlightElement(block); });
+                    window.scrollTo(0, document.body.scrollHeight);
+                }
             }
-        }
 
-        // HIDE ECG LOADER only when stream has fully completed
-        loader.style.display = 'none';
+            loader.style.display = 'none';
+            chatHistory.push({sender: "Bot", text: fullBotText, id: msgId, files: []});
+            localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
 
-        // Persist the completed message to history
-        chatHistory.push({sender: "Bot", text: fullBotText, id: msgId, files: []});
-        localStorage.setItem('puter_chat_history_' + currentSessionId, JSON.stringify(chatHistory));
-
-        /* --- REQUIREMENT #1: LIVELY NATIVE TTS RESPONSE --- */
-        if(isVoiceResponseActive && window.AndroidInterface) {
-            window.AndroidInterface.speak(fullBotText);
+            if(isVoiceResponseActive && window.AndroidInterface) {
+                window.AndroidInterface.speak(fullBotText);
+            }
         }
 
         clearFiles(); 
@@ -1002,7 +1073,18 @@
     }
 
     function loadSavedHistory() {
-        chatHistory.forEach(item => appendChat(item.sender, item.text, true, item.files || []));
+        chatHistory.forEach(item => {
+            if(item.type === "image") {
+                const log = document.getElementById('puterChatLog');
+                const div = document.createElement("div");
+                div.className = "message bot-message";
+                div.id = item.id;
+                div.innerHTML = `<div class="message-content"><b>Bot:</b><br><img src="${item.src}" class="ai-generated-image"><a href="${item.src}" download="generated-image.png" class="download-btn"><span class="material-symbols-outlined">download</span> Download Image</a></div>`;
+                log.appendChild(div);
+            } else {
+                appendChat(item.sender, item.text, true, item.files || []);
+            }
+        });
     }
 
     /* --- REQUIREMENT #3: DYNAMIC SESSION LOGIC WITH DELETE --- */
