@@ -897,7 +897,7 @@
             });
 
             loader.style.display = 'none';
-            console.log("Image response:", response);
+            console.log("Image response RAW:", response);
 
             // POINT 7: Parse image formats
             let imgSrc = null;
@@ -909,8 +909,15 @@
                 if(imgBlock) imgSrc = imgBlock.image_url.url;
             }
 
-            if(imgSrc) renderImage(imgSrc);
-            else appendChat("Bot", "Error: AI returned no image data.");
+            if(imgSrc) {
+                renderImage(imgSrc);
+            } else {
+                // --- DEBUG UPGRADE: SHOW RAW PAYLOAD ON FAILURE ---
+                const debugInfo = "### Debug: Image Extraction Failed\n" +
+                                "The AI did not return a recognized image key. Inspect the raw payload below to troubleshoot:\n\n" +
+                                "```json\n" + JSON.stringify(response, null, 2) + "\n```";
+                appendChat("Bot", debugInfo);
+            }
 
         } else {
             // --- ENHANCEMENT: LIVELY STREAMING GENERATION ---
@@ -958,7 +965,10 @@
       } catch(e) { 
         loader.style.display = 'none';
         console.error("API Call Failed: " + e.message);
-        appendChat("System", "Error: " + e.message); 
+        // --- DEBUG UPGRADE: SHOW ERROR JSON ---
+        const errorDebug = "### API ERROR DIAGNOSTIC\n" +
+                           "```json\n" + JSON.stringify(e, Object.getOwnPropertyNames(e), 2) + "\n```";
+        appendChat("System", errorDebug); 
       }
     }
 
