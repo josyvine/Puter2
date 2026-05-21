@@ -96,8 +96,8 @@
       width: 90%;
       max-width: 500px;
       text-align: center;
-      padding: 20px;
-      margin-top: 60px;
+      padding: 10px;
+      margin-top: 40px;
     }
 
     .portal-logo {
@@ -117,7 +117,7 @@
       font-size: 14px;
       color: #666;
       line-height: 1.5;
-      margin-bottom: 25px;
+      margin-bottom: 20px;
     }
 
     .search-wrapper {
@@ -154,6 +154,119 @@
     .search-btn span {
       font-size: 28px;
     }
+
+    /* =========================================================================
+     * DECENTRALIZED RECEIVER INBOX (TINY BOX) PANEL
+     * ========================================================================= */
+    .inbox-container {
+      width: 90%;
+      max-width: 500px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 15px;
+      margin-top: 25px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      display: flex;
+      flex-direction: column;
+      max-height: 250px;
+    }
+
+    .inbox-header {
+      font-size: 12px;
+      font-weight: bold;
+      color: #555;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 6px;
+    }
+
+    .inbox-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow-y: auto;
+      flex: 1;
+      padding-right: 5px;
+    }
+
+    /* Style for the visual dynamic card (Tiny Box) */
+    .tiny-box {
+      background: #f8f9fa;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
+      animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateY(10px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .tiny-box:hover {
+      background: #e8f0fe;
+      border-color: #1a73e8;
+    }
+
+    .tiny-box-content {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      overflow: hidden;
+      flex: 1;
+      padding-right: 10px;
+    }
+
+    .tiny-box-title {
+      font-size: 13px;
+      font-weight: bold;
+      color: #333;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tiny-box-sub {
+      font-size: 11px;
+      color: #666;
+    }
+
+    .tiny-box-icon {
+      color: #1a73e8;
+      font-size: 20px;
+    }
+
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: bold;
+      color: #444;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #d93025; /* RED indicating offline by default */
+      transition: background 0.3s;
+    }
+
+    .status-dot.connected {
+      background: #27ae60; /* GREEN when socket is fully open */
+    }
   </style>
 </head>
 <body>
@@ -164,8 +277,8 @@
       <span class="material-symbols-outlined" style="font-size: 18px;">chat</span> Exit to Chat
     </button>
     <div class="header-title">Web Browser Portal</div>
-    <button class="scraper-btn" onclick="goToScraper()">
-      <span class="material-symbols-outlined" style="font-size: 18px;">table_rows</span> Scraper Dashboard
+    <button id="btnReconnect" class="scraper-btn" onclick="initNostrConnection()">
+      <span class="material-symbols-outlined" style="font-size: 18px;">sync</span> Reconnect Relay
     </button>
   </header>
 
@@ -181,6 +294,20 @@
       <button class="search-btn" onclick="navigatePortalAddress()">
         <span class="material-symbols-outlined">arrow_forward</span>
       </button>
+    </div>
+  </div>
+
+  <!-- Real-Time Decentralized Scraper Receiver Inbox -->
+  <div class="inbox-container">
+    <div class="inbox-header">
+      <span>Scraper Inbox</span>
+      <div class="status-indicator">
+        <div id="statusDot" class="status-dot"></div>
+        <span id="statusText">Offline</span>
+      </div>
+    </div>
+    <div id="inboxList" class="inbox-list">
+      <div style="color: #999; text-align: center; font-size: 12px; margin-top: 20px;">No incoming data packets yet.</div>
     </div>
   </div>
 
@@ -248,13 +375,216 @@
         }
     }
 
+    // Legacy Scraper routing removed. Re-connects Nostr WebSocket Client manually.
     function goToScraper() {
-        if (window.AndroidInterface && window.AndroidInterface.loadLocalUrl) {
-            window.AndroidInterface.loadLocalUrl('scraper.html');
-        } else {
-            window.location.href = 'scraper.html';
+        initNostrConnection();
+    }
+
+    // =========================================================================
+    // DECENTRALIZED RECEIVER CLIENT ENGINE & ERROR REPORTING
+    // =========================================================================
+    let nostrSocket = null;
+    let registeredSettings = null;
+
+    /**
+     * Initializes the WebSocket connection using credentials retrieved from the Java bridge,
+     * featuring comprehensive exception-trap logging.
+     */
+    function initNostrConnection() {
+        if (!window.AndroidInterface) return;
+
+        // Terminate existing socket instances cleanly before opening a new channel
+        if (nostrSocket) {
+            try { nostrSocket.close(); } catch(e) {}
+        }
+
+        updateStatusUI("connecting");
+
+        try {
+            // Fetch public ID filter and relay settings from preferences
+            const settingsJson = window.AndroidInterface.getNostrSettings();
+            registeredSettings = JSON.parse(settingsJson);
+
+            const relayUrl = registeredSettings.relay_url || "wss://relay.damus.io";
+            const extPubkey = registeredSettings.public_key;
+
+            if (!extPubkey) {
+                window.AndroidInterface.showToast("Handshake Warning: Link Extension Public ID in Settings.");
+                updateStatusUI("error");
+                return;
+            }
+
+            window.AndroidInterface.nativeLog("Inbox Client: Connecting to " + relayUrl, "info");
+            nostrSocket = new WebSocket(relayUrl);
+
+            nostrSocket.onopen = () => {
+                updateStatusUI("connected");
+                window.AndroidInterface.nativeLog("Inbox Client: Socket established.", "info");
+
+                // Broadcast NIP-01 Subscription Request (Filter for Kind 1 events authoring our extensions)
+                const reqFrame = ["REQ", "puter_inbox_sub", {
+                    kinds: [1],
+                    authors: [extPubkey],
+                    "#t": ["puter_unofficial_scrap"]
+                }];
+                nostrSocket.send(JSON.stringify(reqFrame));
+            };
+
+            nostrSocket.onmessage = (msgEvent) => {
+                try {
+                    const message = JSON.parse(msgEvent.data);
+                    
+                    // Route notice rejections natively
+                    if (Array.isArray(message) && message[0] === "NOTICE") {
+                        const rejectDetails = `Relay Notice from ${relayUrl}: ${message[1]}`;
+                        window.AndroidInterface.reportGlitchedLogic("NOSTR_RELAY_NOTICE", rejectDetails);
+                    }
+
+                    if (Array.isArray(message) && message[0] === "EVENT" && message[2]) {
+                        const event = message[2];
+                        processIncomingScrapedEvent(event);
+                    }
+                } catch(e) {
+                    const parseDetails = "Failed to deserialize WebSocket Frame: " + e.message + "\nFrame: " + msgEvent.data;
+                    window.AndroidInterface.logHtmlGlitch("NOSTR_SERIALIZE_EXCEPTION", parseDetails);
+                }
+            };
+
+            nostrSocket.onclose = (closeEvent) => {
+                updateStatusUI("disconnected");
+                window.AndroidInterface.nativeLog("Inbox Client: Connection closed.", "info");
+                
+                // Track unexpected connection terminations
+                if (!closeEvent.wasClean) {
+                    const details = `Disconnection from ${relayUrl}. Code: ${closeEvent.code} | Reason: ${closeEvent.reason || 'None'}`;
+                    window.AndroidInterface.reportGlitchedLogic("NOSTR_SOCKET_CLOSE", details);
+                }
+            };
+
+            nostrSocket.onerror = (error) => {
+                updateStatusUI("error");
+                const errDetails = `WebSocket error occurred during communication with: ${relayUrl}`;
+                window.AndroidInterface.reportGlitchedLogic("NOSTR_SOCKET_ERROR", errDetails);
+            };
+
+        } catch (setupError) {
+            updateStatusUI("error");
+            window.AndroidInterface.reportGlitchedLogic("NOSTR_SETUP_CRITICAL", "Setup Failed: " + setupError.message);
         }
     }
+
+    /**
+     * Dynamic UI state-machine switcher
+     */
+    function updateStatusUI(state) {
+        const dot = document.getElementById("statusDot");
+        const txt = document.getElementById("statusText");
+
+        dot.className = "status-dot";
+        if (state === "connected") {
+            dot.classList.add("connected");
+            txt.innerText = "Listening";
+        } else if (state === "connecting") {
+            txt.innerText = "Connecting...";
+        } else if (state === "error") {
+            txt.innerText = "Error";
+        } else {
+            txt.innerText = "Offline";
+        }
+    }
+
+    /**
+     * Receives raw Nostr events, parses their nested contents,
+     * and maps them dynamically to "Tiny Box" cards.
+     */
+    function processIncomingScrapedEvent(event) {
+        try {
+            const rawContent = event.content;
+            if (!rawContent) return;
+
+            // Deserialize content string array
+            const itemsList = JSON.parse(rawContent);
+            if (!Array.isArray(itemsList) || itemsList.length === 0) return;
+
+            // Clear empty container state
+            const listContainer = document.getElementById("inboxList");
+            if (listContainer.innerHTML.includes("No incoming data")) {
+                listContainer.innerHTML = '';
+            }
+
+            itemsList.forEach((item) => {
+                // Ensure duplicate check before adding card element
+                const existingCard = document.getElementById(`box_${event.id}`);
+                if (existingCard) return;
+
+                // 1. Identify category mapping metadata
+                const isUniversal = (item.hierarchy && item.hierarchy.main_category === "Universal Scrape");
+                
+                // 2. Extracts labeling details (extracts title/model)
+                let label = "";
+                let subLabel = "";
+
+                if (isUniversal) {
+                    label = item.specifications.title || "Universal Article";
+                    subLabel = item.hierarchy.sub_category || "Web Domain";
+                } else {
+                    label = item.specifications.model || item.specifications.asin || "Amazon Product";
+                    subLabel = `Brand: ${item.specifications.brand || 'N/A'}`;
+                }
+
+                // 3. Create the Tiny Box card
+                const card = document.createElement("div");
+                card.className = "tiny-box";
+                card.id = `box_${event.id}`;
+                
+                card.innerHTML = `
+                    <div class="tiny-box-content">
+                        <span class="tiny-box-title">${label}</span>
+                        <span class="tiny-box-sub">${subLabel}</span>
+                    </div>
+                    <span class="material-symbols-outlined tiny-box-icon">archive</span>
+                `;
+
+                // 4. Save logic on click: Passes JSON to native bridge
+                card.onclick = () => {
+                    const trackingId = isUniversal ? (item.specifications.title || "UNI_" + Date.now()) : (item.specifications.asin || "AMZN_" + Date.now());
+                    
+                    // Transform to Puter database structure
+                    const databaseStructure = {
+                        type: isUniversal ? "universal_web" : "amazon_catalog",
+                        scraped_id: trackingId,
+                        hierarchy: item.hierarchy,
+                        specifications: item.specifications,
+                        metadata: isUniversal ? {
+                            title: item.specifications.title,
+                            url: item.specifications.url,
+                            timestamp: new Date().toLocaleString()
+                        } : null,
+                        content: isUniversal ? item.specifications.raw_content : null
+                    };
+
+                    window.AndroidInterface.addScrapedProduct(trackingId, JSON.stringify(databaseStructure));
+                    window.AndroidInterface.showToast(`Saved to history: ${label}`);
+                    
+                    // Delete card visually after save
+                    card.style.transform = "translateX(50px)";
+                    card.style.opacity = "0";
+                    setTimeout(() => card.remove(), 300);
+                };
+
+                listContainer.appendChild(card);
+            });
+
+        } catch (parseError) {
+            const errDetails = "Mismatched content JSON format: " + parseError.message + "\nEvent Content: " + event.content;
+            window.AndroidInterface.logHtmlGlitch("NOSTR_PARSER_EXCEPTION", errDetails);
+        }
+    }
+
+    // Initialize Connection on start
+    window.onload = () => {
+        initNostrConnection();
+    };
   </script>
 </body>
 </html>
