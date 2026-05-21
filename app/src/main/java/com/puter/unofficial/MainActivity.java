@@ -59,6 +59,7 @@ public class MainActivity extends AppCompatActivity {
     private Button btnBrowserBack;
     private Button btnBrowserForward;
     private Button btnBrowserReload;
+    private Button btnBrowserScraper; // Added native scraper button view reference
     private FloatingActionButton fabScrape;
 
     // Background handler for managing native scraping timers and watchdogs
@@ -100,6 +101,7 @@ public class MainActivity extends AppCompatActivity {
         btnBrowserBack = findViewById(R.id.btnBrowserBack);
         btnBrowserForward = findViewById(R.id.btnBrowserForward);
         btnBrowserReload = findViewById(R.id.btnBrowserReload);
+        btnBrowserScraper = findViewById(R.id.btnBrowserScraper); // Bound native scraper button
         fabScrape = findViewById(R.id.fabScrape);
 
         // Setup Native Browser Controls click listeners
@@ -117,6 +119,11 @@ public class MainActivity extends AppCompatActivity {
         btnBrowserReload.setOnClickListener(v -> {
             if (webView != null) {
                 webView.reload();
+            }
+        });
+        btnBrowserScraper.setOnClickListener(v -> {
+            if (webView != null) {
+                webView.loadUrl(AppConstants.LOCAL_SCRAPER_URL);
             }
         });
 
