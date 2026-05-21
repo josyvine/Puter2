@@ -38,8 +38,8 @@
             rawTitle = ogTitle.content.trim();
         } else if (twitterTitle && twitterTitle.content) {
             rawTitle = twitterTitle.content.trim();
-        } else if (h1Element && h1Element.innerText.trim()) {
-            rawTitle = h1Element.innerText.trim();
+        } else if (h1Element && h1Element.textContent.trim()) {
+            rawTitle = h1Element.textContent.trim();
         }
 
         const cleanTitle = cleanTextString(rawTitle);
@@ -68,7 +68,7 @@
             const parent = p.parentNode;
             if (!parent) return;
 
-            const paragraphText = p.innerText.trim();
+            const paragraphText = p.textContent.trim();
             // Discard single words, empty lines, and small helper tags
             if (paragraphText.length < 25) return;
 
@@ -95,9 +95,9 @@
 
             // Calculate total non-link text vs hyperlink markups
             const linkText = Array.from(container.querySelectorAll('a'))
-                .map(a => a.innerText.trim())
+                .map(a => a.textContent.trim())
                 .join('');
-            const totalText = container.innerText.trim();
+            const totalText = container.textContent.trim();
 
             if (totalText.length > 0) {
                 const linkDensity = linkText.length / totalText.length;
@@ -119,7 +119,7 @@
         if (winningContainer && highestScore > 4) {
             // Read child tags inside winning container (paragraphs and secondary headings)
             const contentNodes = Array.from(winningContainer.querySelectorAll('p, h2, h3'))
-                .map(node => node.innerText.replace(/\s+/g, ' ').trim())
+                .map(node => node.textContent.replace(/\s+/g, ' ').trim())
                 .filter(text => text.length > 20);
 
             finalCleanText = contentNodes.join('\n\n');
@@ -127,12 +127,12 @@
             // Universal Fallback: Gathers all low-link-density paragraphs from the body clone directly
             const fallbackParagraphs = Array.from(bodyClone.querySelectorAll('p'))
                 .filter(p => {
-                    const textVal = p.innerText.trim();
+                    const textVal = p.textContent.trim();
                     if (textVal.length < 35) return false;
-                    const linksVal = Array.from(p.querySelectorAll('a')).map(a => a.innerText).join('');
+                    const linksVal = Array.from(p.querySelectorAll('a')).map(a => a.textContent).join('');
                     return (linksVal.length / textVal.length) < 0.25;
                 })
-                .map(p => p.innerText.replace(/\s+/g, ' ').trim());
+                .map(p => p.textContent.replace(/\s+/g, ' ').trim());
 
             finalCleanText = fallbackParagraphs.join('\n\n');
         }
@@ -161,7 +161,7 @@
      */
     function triggerScrapeCallback() {
         console.log("universal_scraper.js: Parsing core body content...");
-        
+
         try {
             const payload = extractArticleParagraphs();
 
@@ -209,4 +209,4 @@
 
     // Auto-executes safety diagnostics on load
     console.log("universal_scraper.js initialized and listening on secure virtual frame.");
-})(); 
+})();
