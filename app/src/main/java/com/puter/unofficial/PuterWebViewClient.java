@@ -302,6 +302,9 @@ public class PuterWebViewClient extends WebViewClient {
     public void onPageStarted(WebView view, String url, Bitmap favicon) {
         super.onPageStarted(view, url, favicon);
         Log.d(TAG, "Page load started: " + url);
+        if (context instanceof MainActivity) {
+            ((MainActivity) context).handleUrlChange(url);
+        }
     }
 
     @Override
@@ -312,6 +315,10 @@ public class PuterWebViewClient extends WebViewClient {
         // PERSISTENCE FIX: Force cookie sync to disk.
         // This ensures the AI chat engine has access to the auth session immediately.
         CookieManager.getInstance().flush();
+
+        if (context instanceof MainActivity) {
+            ((MainActivity) context).handleUrlChange(url);
+        }
 
         /*
          * After our index.html is loaded, we can trigger a JS function 
