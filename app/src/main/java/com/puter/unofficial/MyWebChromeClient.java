@@ -37,6 +37,7 @@ import java.util.Locale;
  */
 public class MyWebChromeClient extends WebChromeClient {
 
+    private static final String TAG = "MyWebChromeClient";
     private ValueCallback<Uri[]> uploadMessage;
     private final Activity activity;
     private String currentPhotoPath;
@@ -50,6 +51,7 @@ public class MyWebChromeClient extends WebChromeClient {
     /**
      * FIX: Capture JavaScript console logs and pipe them to Logcat.
      * This allows you to see JS errors in the system logs even without Chrome DevTools.
+     * UPDATED: Now also writes unhandled errors and warnings directly to the public diagnostic log.
      */
     @Override
     public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
@@ -58,11 +60,20 @@ public class MyWebChromeClient extends WebChromeClient {
             consoleMessage.message(),
             consoleMessage.lineNumber(),
             consoleMessage.sourceId());
-        
+
         switch (consoleMessage.messageLevel()) {
-            case ERROR: Log.e("PuterJS", logMsg); break;
-            case WARNING: Log.w("PuterJS", logMsg); break;
-            default: Log.d("PuterJS", logMsg); break;
+            case ERROR: 
+                Log.e("PuterJS", logMsg); 
+                ActionReportLogger.logHtmlGlitch("JS_CONSOLE_ERROR", logMsg);
+                break;
+            case WARNING: 
+                Log.w("PuterJS", logMsg); 
+                ActionReportLogger.logHtmlGlitch("JS_CONSOLE_WARNING", logMsg);
+                break;
+            default: 
+                Log.d("PuterJS", logMsg); 
+                ActionReportLogger.logAction("JS_CONSOLE_LOG", logMsg);
+                break;
         }
         return true;
     }
@@ -91,7 +102,7 @@ public class MyWebChromeClient extends WebChromeClient {
             triggerNativeLog("Manual Close Triggered by User", "warn");
             closeAuthAndRefresh();
         });
-        
+
         dialogLayout.addView(closeButton, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 
                 ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -122,16 +133,16 @@ public class MyWebChromeClient extends WebChromeClient {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
                 triggerNativeLog("Popup Navigating: " + url, "info");
-                
+
                 // Active URL monitoring for success markers
                 if (url.contains(AppConstants.AUTH_TOKEN_PARAM) || 
                     url.contains(AppConstants.AUTH_SUCCESS_MARKER) || 
                     url.contains("auth_success") || 
                     url.contains("signed_in=true")) {
-                    
+
                     if (!isAuthProcessing) {
                         isAuthProcessing = true;
-                        
+
                         triggerNativeLog("Auth marker found. Waiting for session persistence...", "native");
 
                         // CORE FIX: Delay closure and return FALSE to allow the redirect to finalize.
@@ -171,18 +182,19 @@ public class MyWebChromeClient extends WebChromeClient {
         authDialog = new Dialog(activity, android.R.style.Theme_DeviceDefault_NoActionBar);
         authDialog.setContentView(dialogLayout);
         authDialog.show();
-        
+
         transport.setWebView(popupWebView);
         resultMsg.sendToTarget();
-        
+
         return true;
     }
 
     /**
-     * Helper to send logs to the background main console
+     * Helper to send logs to the background main console and the public documents log.
      */
     private void triggerNativeLog(String msg, String type) {
         Log.d("PuterPopupTrace", msg);
+        ActionReportLogger.logAction("AUTH_POPUP", "[" + type + "] " + msg);
     }
 
     /**
@@ -192,7 +204,7 @@ public class MyWebChromeClient extends WebChromeClient {
      */
     private void closeAuthAndRefresh() {
         CookieManager.getInstance().flush(); 
-        
+
         if (authDialog != null && authDialog.isShowing()) {
             authDialog.dismiss();
             authDialog = null;
