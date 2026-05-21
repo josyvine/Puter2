@@ -16,11 +16,20 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.Toast;
 import android.util.Log;
+import android.view.View;
+import android.view.KeyEvent;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.LinearLayout;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+
+import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,6 +50,15 @@ public class MainActivity extends AppCompatActivity {
     private WebAppInterface webAppInterface;
     private MyWebChromeClient myWebChromeClient; // Custom client for popups/uploads
 
+    // Native Browser Control Panel Views
+    private LinearLayout browserToolbar;
+    private Button btnBrowserExit;
+    private EditText inputBrowserAddress;
+    private Button btnBrowserBack;
+    private Button btnBrowserForward;
+    private Button btnBrowserReload;
+    private FloatingActionButton fabScrape;
+
     // Receiver to catch results from the Full-Screen Voice Agent Activity
     private BroadcastReceiver voiceReceiver;
 
@@ -56,9 +74,74 @@ public class MainActivity extends AppCompatActivity {
 
         // REQUIREMENT: Force White/Light Theme at the Activity Level
         setTheme(androidx.appcompat.R.style.Theme_AppCompat_Light_NoActionBar);
+
+        // PERFORMANCE FIX: Pre-warm the WebView class loader context off-screen
+        // to mitigate Chromium binder setting stalls during main layout inflation.
+        try {
+            Class.forName("android.webkit.WebView");
+        } catch (Exception ignored) {
+            Log.w("MainActivity", "WebView class loader pre-warmup bypassed.");
+        }
+
         setContentView(R.layout.activity_main);
 
         webView = findViewById(R.id.webView);
+
+        // Bind Native Browser Controls from activity_main.xml
+        browserToolbar = findViewById(R.id.browserToolbar);
+        btnBrowserExit = findViewById(R.id.btnBrowserExit);
+        inputBrowserAddress = findViewById(R.id.inputBrowserAddress);
+        btnBrowserBack = findViewById(R.id.btnBrowserBack);
+        btnBrowserForward = findViewById(R.id.btnBrowserForward);
+        btnBrowserReload = findViewById(R.id.btnBrowserReload);
+        fabScrape = findViewById(R.id.fabScrape);
+
+        // Setup Native Browser Controls click listeners
+        btnBrowserExit.setOnClickListener(v -> loadIndexHtml());
+        btnBrowserBack.setOnClickListener(v -> {
+            if (webView != null && webView.canGoBack()) {
+                webView.goBack();
+            }
+        });
+        btnBrowserForward.setOnClickListener(v -> {
+            if (webView != null && webView.canGoForward()) {
+                webView.goForward();
+            }
+        });
+        btnBrowserReload.setOnClickListener(v -> {
+            if (webView != null) {
+                webView.reload();
+            }
+        });
+
+        // Handle keyboard actions inside address input field
+        inputBrowserAddress.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_GO || actionId == EditorInfo.IME_ACTION_DONE ||
+                (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_DOWN)) {
+                String url = inputBrowserAddress.getText().toString().trim();
+                if (!url.isEmpty()) {
+                    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                        url = "https://" + url;
+                    }
+                    webView.loadUrl(url);
+                    // Hide virtual keyboard
+                    InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) {
+                        imm.hideSoftInputFromWindow(inputBrowserAddress.getWindowToken(), 0);
+                    }
+                }
+                return true;
+            }
+            return false;
+        });
+
+        // Handle clicking the Native Scraping FAB by evaluating a top-level postMessage directly
+        fabScrape.setOnClickListener(v -> {
+            if (webView != null) {
+                // Post the 'scrape' command directly to our injected script on the active top-level webpage origin
+                webView.evaluateJavascript("window.postMessage('scrape', '*');", null);
+            }
+        });
 
         // DIAGNOSTICS: Enable Remote Debugging via Chrome DevTools (pc)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
@@ -128,6 +211,40 @@ public class MainActivity extends AppCompatActivity {
 
         // Check and Request System Permissions
         checkAndRequestPermissions();
+    }
+
+    /**
+     * Toggles visibility of the Native browser control toolbar and the Scraping FAB.
+     * Triggered automatically by the WebViewClient during page transitions.
+     */
+    public void handleUrlChange(String url) {
+        runOnUiThread(() -> {
+            if (url == null) return;
+
+            if (url.startsWith(AppConstants.LOCAL_INDEX_URL)) {
+                // If on local index home page, hide native browser controls
+                browserToolbar.setVisibility(View.GONE);
+                fabScrape.setVisibility(View.GONE);
+            } else {
+                // If browsing an external page, show native browser controls
+                browserToolbar.setVisibility(View.VISIBLE);
+                fabScrape.setVisibility(View.VISIBLE);
+
+                // Dynamically update the address field text when not active
+                if (!inputBrowserAddress.isFocused()) {
+                    inputBrowserAddress.setText(url);
+                }
+            }
+        });
+    }
+
+    /**
+     * Navigates back to the main local index URL.
+     */
+    private void loadIndexHtml() {
+        if (webView != null) {
+            webView.loadUrl(AppConstants.LOCAL_INDEX_URL);
+        }
     }
 
     /**
@@ -280,29 +397,37 @@ public class MainActivity extends AppCompatActivity {
 
     /**
      * Overridden to intercept back button navigation dynamically.
-     * Prevents the app from closing when browsing an external page or when
-     * inside the sub-panels (browser.html, scraper.html).
+     * Prevents the app from closing when browsing an external page.
      */
     @Override
     public void onBackPressed() {
         if (webView != null) {
             String currentUrl = webView.getUrl();
             if (currentUrl != null) {
-                // 1. If viewing an external webpage inside the viewport, go back in browser history
-                if (!currentUrl.startsWith("https://appassets.androidplatform.net/")) {
+                // If currently inside the active native browser session
+                if (browserToolbar.getVisibility() == View.VISIBLE) {
+                    if (webView.canGoBack()) {
+                        webView.goBack(); // Navigate web history natively
+                    } else {
+                        loadIndexHtml(); // If no web history remains, gracefully load home index
+                    }
+                    return;
+                }
+                // If viewing other external webpages inside the top-level viewport
+                else if (!currentUrl.startsWith("https://appassets.androidplatform.net/")) {
                     if (webView.canGoBack()) {
                         webView.goBack();
                         return;
                     }
                 } 
-                // 2. If inside local sub-panels, smoothly route back to the central Puter Chat index.html
-                else if (currentUrl.contains("browser.html") || currentUrl.contains("scraper.html")) {
+                // If inside local sub-panels (like scraper.html)
+                else if (currentUrl.contains("scraper.html")) {
                     webView.loadUrl(AppConstants.LOCAL_INDEX_URL);
                     return;
                 }
             }
         }
-        // 3. Default fallback if we are on index.html
+        // Default fallback if we are on index.html
         super.onBackPressed();
     }
 
