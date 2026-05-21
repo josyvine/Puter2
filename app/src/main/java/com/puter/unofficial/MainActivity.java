@@ -250,7 +250,7 @@ public class MainActivity extends AppCompatActivity {
                 fabScrape.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#F2994A")));
             }, 1200);
 
-            // 3. START DIAGNOSTIC WATCHDOG TIMER (8-seconds limit)
+            // 3. START DIAGNOSTIC WATCHDOG TIMER (Extended to 20-seconds limit for dynamic portal rendering safety)
             scrapeTimeoutRunnable = () -> {
                 fabScrape.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#D93025"))); // Revert to RED indicating failure
                 Toast.makeText(MainActivity.this, "Scraping failed: Iframe or Script Timeout.", Toast.LENGTH_LONG).show();
@@ -260,7 +260,7 @@ public class MainActivity extends AppCompatActivity {
                     fabScrape.setBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A73E8")));
                 }, 4000);
             };
-            scrapeHandler.postDelayed(scrapeTimeoutRunnable, 8000);
+            scrapeHandler.postDelayed(scrapeTimeoutRunnable, 20000);
 
             // Evaluate standard postMessage to trigger the injected script inside the current same-origin main window context
             webView.evaluateJavascript("window.postMessage('scrape', '*');", null);
