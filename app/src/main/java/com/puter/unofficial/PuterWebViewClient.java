@@ -128,7 +128,7 @@ public class PuterWebViewClient extends WebViewClient {
                     conn.setInstanceFollowRedirects(true);
 
                     int statusCode = conn.getResponseCode();
-                    String responseMessage = conn.getResponseMessage();
+                    String responseMessage = conn.getResponseCode() == 200 ? "OK" : conn.getResponseMessage();
                     String mimeType = conn.getContentType();
                     String encoding = conn.getContentEncoding();
 
@@ -222,9 +222,16 @@ public class PuterWebViewClient extends WebViewClient {
 
                             stream = new java.io.ByteArrayInputStream(html.getBytes(encoding));
 
-                            // Remove gzip compression header since we are delivering decrypted uncompressed HTML
-                            responseHeaders.remove("Content-Encoding");
-                            responseHeaders.remove("content-encoding");
+                            // Remove gzip compression headers case-insensitively since we are delivering decrypted uncompressed HTML
+                            java.util.List<String> keysToRemove = new java.util.ArrayList<>();
+                            for (String headerKey : responseHeaders.keySet()) {
+                                if (headerKey != null && headerKey.equalsIgnoreCase("content-encoding")) {
+                                    keysToRemove.add(headerKey);
+                                }
+                            }
+                            for (String headerKey : keysToRemove) {
+                                responseHeaders.remove(headerKey);
+                            }
                         } catch (Exception injectionError) {
                             Log.e(TAG, "Stream Interceptor Error: Parsing failed. Restoring original stream context.", injectionError);
                             // Fallback to original connection properties in case of an encoding exception
@@ -232,10 +239,8 @@ public class PuterWebViewClient extends WebViewClient {
                             conn = (java.net.HttpURLConnection) url.openConnection();
                             conn.setRequestMethod("GET");
                             if (request.getRequestHeaders() != null) {
-                                {
-                                    for (java.util.Map.Entry<String, String> entry : request.getRequestHeaders().entrySet()) {
-                                        conn.setRequestProperty(entry.getKey(), entry.getValue());
-                                    }
+                                for (java.util.Map.Entry<String, String> entry : request.getRequestHeaders().entrySet()) {
+                                    conn.setRequestProperty(entry.getKey(), entry.getValue());
                                 }
                             }
                             stream = conn.getInputStream();
