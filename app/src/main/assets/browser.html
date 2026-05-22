@@ -488,6 +488,44 @@
     let nostrSocket = null;
     let connectionForcedClosed = false;
 
+    // Convert byte array to hexadecimal string
+    function bytesToHex(bytes) {
+        return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // Bech32 npub/nsec Key Decoder
+    const BECH32_ALPHABET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+    function decodeBech32(bechString) {
+        const separatorIndex = bechString.lastIndexOf('1');
+        if (separatorIndex === -1) throw new Error("Invalid Bech32 key structural configuration.");
+        const hrp = bechString.slice(0, separatorIndex);
+        if (hrp !== "npub" && hrp !== "nsec") throw new Error("Key structure prefix is not npub or nsec.");
+        
+        const dataString = bechString.slice(separatorIndex + 1);
+        const data = [];
+        for (let i = 0; i < dataString.length; i++) {
+            const charIndex = BECH32_ALPHABET.indexOf(dataString[i]);
+            if (charIndex === -1) throw new Error("Bech32 contains prohibited structures.");
+            data.push(charIndex);
+        }
+        
+        const values = data.slice(0, -6); // Strip 6-character checksum
+        let accumulator = 0;
+        let bits = 0;
+        const bytes = [];
+        const maxAccumulator = (1 << 12) - 1;
+        
+        for (let i = 0; i < values.length; i++) {
+            accumulator = ((accumulator << 5) | values[i]) & maxAccumulator;
+            bits += 5;
+            while (bits >= 8) {
+                bits -= 8;
+                bytes.push((accumulator >> bits) & 0xff);
+            }
+        }
+        return new Uint8Array(bytes);
+    }
+
     /**
      * Reads native settings to load configured values onto the HTML inputs
      */
@@ -568,6 +606,26 @@
                 return;
             }
 
+            // Dynamic Key Format Translation (Bech32 npub to 32-byte Hex)
+            let hexPubkey = extPubkey;
+            try {
+                const hexRegex = /^[a-fA-F0-9]{64}$/;
+                if (hexRegex.test(extPubkey)) {
+                    window.AndroidInterface.nativeLog("Inbox Client: Detected raw 64-character hexadecimal public key format.", "info");
+                } else if (extPubkey.startsWith("npub1")) {
+                    window.AndroidInterface.nativeLog("Inbox Client: Detected Bech32 npub format. Translating to hex...", "info");
+                    const decodedBytes = decodeBech32(extPubkey);
+                    hexPubkey = bytesToHex(decodedBytes);
+                    window.AndroidInterface.nativeLog("Inbox Client: Derived hex public key: " + hexPubkey, "info");
+                } else {
+                    throw new Error("Unsupported public key format. Must be 64-char hex or start with 'npub1'.");
+                }
+            } catch (keyError) {
+                window.AndroidInterface.reportGlitchedLogic("NOSTR_KEY_PARSE_FAILED", "Failed to parse public key '" + extPubkey + "': " + keyError.message);
+                updateStatusUI("error");
+                return;
+            }
+
             window.AndroidInterface.nativeLog("Inbox Client: Connecting directly to " + relayUrl, "info");
             nostrSocket = new WebSocket(relayUrl);
 
@@ -575,10 +633,10 @@
                 updateStatusUI("connected");
                 window.AndroidInterface.nativeLog("Inbox Client: Socket established successfully.", "info");
 
-                // Broadcast NIP-01 Subscription Request (Filter for Kind 1 events authoring our extensions)
+                // Broadcast NIP-01 Subscription Request (Filter for Kind 1 events authored by the extension)
                 const reqFrame = ["REQ", "puter_inbox_sub", {
                     kinds: [1],
-                    authors: [extPubkey],
+                    authors: [hexPubkey],
                     "#t": ["puter_unofficial_scrap"]
                 }];
                 nostrSocket.send(JSON.stringify(reqFrame));
