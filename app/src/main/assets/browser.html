@@ -18,11 +18,13 @@
       background: #f7f7f7;
       display: flex;
       flex-direction: column;
-      height: 100vh;
+      min-height: 100vh;
       width: 100vw;
-      overflow: hidden;
+      overflow-x: hidden;
+      overflow-y: auto;
       align-items: center;
-      justify-content: center;
+      padding-top: 80px;
+      padding-bottom: 40px;
     }
 
     /* Slick top header bar matching Puter Unofficial theme */
@@ -97,7 +99,7 @@
       max-width: 500px;
       text-align: center;
       padding: 10px;
-      margin-top: 40px;
+      margin-top: 10px;
     }
 
     .portal-logo {
@@ -156,6 +158,84 @@
     }
 
     /* =========================================================================
+     * NOSTR HANDSHAKE SETTINGS CARD (ELEGANT INTEGRATION)
+     * ========================================================================= */
+    .settings-card {
+      width: 90%;
+      max-width: 500px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 15px;
+      margin-top: 20px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .settings-header {
+      font-size: 12px;
+      font-weight: bold;
+      color: #555;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 6px;
+    }
+
+    .form-group {
+      margin-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .form-group label {
+      font-size: 11px;
+      font-weight: bold;
+      color: #666;
+    }
+
+    .form-group input, .form-group select {
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #333;
+      outline: none;
+      background: #fdfdfd;
+      transition: border 0.2s;
+    }
+
+    .form-group input:focus, .form-group select:focus {
+      border-color: #1a73e8;
+    }
+
+    .toggle-btn {
+      color: #ffffff;
+      background-color: #27ae60;
+      border-radius: 18px;
+      padding: 8px 15px;
+      height: 38px;
+      font-weight: bold;
+      font-size: 12px;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background-color 0.2s;
+      margin-top: 5px;
+      width: 100%;
+    }
+
+    .toggle-btn.disconnected {
+      background-color: #d93025;
+    }
+
+    /* =========================================================================
      * DECENTRALIZED RECEIVER INBOX (TINY BOX) PANEL
      * ========================================================================= */
     .inbox-container {
@@ -165,7 +245,7 @@
       border: 1px solid #ddd;
       border-radius: 12px;
       padding: 15px;
-      margin-top: 25px;
+      margin-top: 20px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.05);
       display: flex;
       flex-direction: column;
@@ -297,6 +377,28 @@
     </div>
   </div>
 
+  <!-- Nostr Handshake Settings Card -->
+  <div class="settings-card">
+    <div class="settings-header">Nostr Handshake Settings</div>
+    <div class="form-group">
+      <label for="extensionPublicKey">Extension Public Key (npub)</label>
+      <input type="text" id="extensionPublicKey" placeholder="npub1... or hex public key" oninput="saveNostrSettingsFromUI()">
+    </div>
+    <div class="form-group">
+      <label for="nostrRelaySelect">Select Relay</label>
+      <select id="nostrRelaySelect" onchange="saveNostrSettingsFromUI()">
+        <option value="wss://relay.damus.io">wss://relay.damus.io</option>
+        <option value="wss://nos.lol">wss://nos.lol</option>
+        <option value="wss://relay.snort.social">wss://relay.snort.social</option>
+        <option value="wss://relay.primal.net">wss://relay.primal.net</option>
+      </select>
+    </div>
+    <button id="btnConnectionToggle" class="toggle-btn" onclick="toggleNostrConnection()">
+      <span class="material-symbols-outlined" style="font-size: 18px;">power_settings_new</span>
+      <span id="connectionToggleText">Disconnect Relay</span>
+    </button>
+  </div>
+
   <!-- Real-Time Decentralized Scraper Receiver Inbox -->
   <div class="inbox-container">
     <div class="inbox-header">
@@ -384,10 +486,65 @@
     // DECENTRALIZED RECEIVER CLIENT ENGINE & ERROR REPORTING
     // =========================================================================
     let nostrSocket = null;
-    let registeredSettings = null;
+    let connectionForcedClosed = false;
 
     /**
-     * Initializes the WebSocket connection using credentials retrieved from the Java bridge,
+     * Reads native settings to load configured values onto the HTML inputs
+     */
+    function loadNostrSettingsInUI() {
+        if (!window.AndroidInterface) return;
+        try {
+            const settingsJson = window.AndroidInterface.getNostrSettings();
+            const settings = JSON.parse(settingsJson);
+            if (settings) {
+                const pubKey = settings.public_key || "";
+                const relayUrl = settings.relay_url || "wss://relay.damus.io";
+                
+                document.getElementById("extensionPublicKey").value = pubKey;
+                document.getElementById("nostrRelaySelect").value = relayUrl;
+                
+                window.AndroidInterface.nativeLog("browser.html: Synchronized handshake configuration UI.", "info");
+            }
+        } catch (e) {
+            window.AndroidInterface.logHtmlGlitch("browser.html", "Failed to deserialize settings payload: " + e.message);
+        }
+    }
+
+    /**
+     * Persists settings changes back to the native backend on the fly
+     */
+    function saveNostrSettingsFromUI() {
+        if (!window.AndroidInterface) return;
+        try {
+            const pubKey = document.getElementById("extensionPublicKey").value.trim();
+            const relayUrl = document.getElementById("nostrRelaySelect").value;
+            
+            window.AndroidInterface.saveNostrSettings(pubKey, relayUrl);
+            window.AndroidInterface.nativeLog("browser.html: Auto-saved handshakes to SharedPreferences.", "info");
+        } catch (e) {
+            window.AndroidInterface.logHtmlGlitch("browser.html", "Failed to persist updated settings: " + e.message);
+        }
+    }
+
+    /**
+     * Reconnection and Active State Toggle mechanism
+     */
+    function toggleNostrConnection() {
+        if (nostrSocket && (nostrSocket.readyState === WebSocket.OPEN || nostrSocket.readyState === WebSocket.CONNECTING)) {
+            connectionForcedClosed = true;
+            if (nostrSocket) {
+                try { nostrSocket.close(); } catch(e) {}
+            }
+            updateStatusUI("disconnected");
+            window.AndroidInterface.nativeLog("browser.html: Manually disconnected relay socket.", "info");
+        } else {
+            connectionForcedClosed = false;
+            initNostrConnection();
+        }
+    }
+
+    /**
+     * Initializes the WebSocket connection using credentials retrieved from the HTML inputs,
      * featuring comprehensive exception-trap logging.
      */
     function initNostrConnection() {
@@ -401,12 +558,9 @@
         updateStatusUI("connecting");
 
         try {
-            // Fetch public ID filter and relay settings from preferences
-            const settingsJson = window.AndroidInterface.getNostrSettings();
-            registeredSettings = JSON.parse(settingsJson);
-
-            const relayUrl = registeredSettings.relay_url || "wss://relay.damus.io";
-            const extPubkey = registeredSettings.public_key;
+            // Read active targets directly from the configured HTML inputs
+            const relayUrl = document.getElementById("nostrRelaySelect").value || "wss://relay.damus.io";
+            const extPubkey = document.getElementById("extensionPublicKey").value.trim();
 
             if (!extPubkey) {
                 window.AndroidInterface.showToast("Handshake Warning: Link Extension Public ID in Settings.");
@@ -414,12 +568,12 @@
                 return;
             }
 
-            window.AndroidInterface.nativeLog("Inbox Client: Connecting to " + relayUrl, "info");
+            window.AndroidInterface.nativeLog("Inbox Client: Connecting directly to " + relayUrl, "info");
             nostrSocket = new WebSocket(relayUrl);
 
             nostrSocket.onopen = () => {
                 updateStatusUI("connected");
-                window.AndroidInterface.nativeLog("Inbox Client: Socket established.", "info");
+                window.AndroidInterface.nativeLog("Inbox Client: Socket established successfully.", "info");
 
                 // Broadcast NIP-01 Subscription Request (Filter for Kind 1 events authoring our extensions)
                 const reqFrame = ["REQ", "puter_inbox_sub", {
@@ -440,6 +594,12 @@
                         window.AndroidInterface.reportGlitchedLogic("NOSTR_RELAY_NOTICE", rejectDetails);
                     }
 
+                    // Handle standard subscription termination messages natively
+                    if (Array.isArray(message) && message[0] === "CLOSED") {
+                        const closeReason = `Relay Subscription Closed from ${relayUrl} on sub: ${message[1]} -- Reason: ${message[2] || 'Unspecified'}`;
+                        window.AndroidInterface.reportGlitchedLogic("NOSTR_RELAY_CLOSED", closeReason);
+                    }
+
                     if (Array.isArray(message) && message[0] === "EVENT" && message[2]) {
                         const event = message[2];
                         processIncomingScrapedEvent(event);
@@ -454,8 +614,8 @@
                 updateStatusUI("disconnected");
                 window.AndroidInterface.nativeLog("Inbox Client: Connection closed.", "info");
                 
-                // Track unexpected connection terminations
-                if (!closeEvent.wasClean) {
+                // Track unexpected connection terminations natively
+                if (!closeEvent.wasClean && !connectionForcedClosed) {
                     const details = `Disconnection from ${relayUrl}. Code: ${closeEvent.code} | Reason: ${closeEvent.reason || 'None'}`;
                     window.AndroidInterface.reportGlitchedLogic("NOSTR_SOCKET_CLOSE", details);
                 }
@@ -463,13 +623,13 @@
 
             nostrSocket.onerror = (error) => {
                 updateStatusUI("error");
-                const errDetails = `WebSocket error occurred during communication with: ${relayUrl}`;
+                const errDetails = `WebSocket error occurred during communication with: ${relayUrl}. ReadyState: ${nostrSocket.readyState}`;
                 window.AndroidInterface.reportGlitchedLogic("NOSTR_SOCKET_ERROR", errDetails);
             };
 
         } catch (setupError) {
             updateStatusUI("error");
-            window.AndroidInterface.reportGlitchedLogic("NOSTR_SETUP_CRITICAL", "Setup Failed: " + setupError.message);
+            window.AndroidInterface.reportGlitchedLogic("NOSTR_SETUP_CRITICAL", "Setup Failed for relay " + (document.getElementById("nostrRelaySelect")?.value || "unknown") + " with error: " + setupError.message);
         }
     }
 
@@ -479,17 +639,27 @@
     function updateStatusUI(state) {
         const dot = document.getElementById("statusDot");
         const txt = document.getElementById("statusText");
+        const toggleBtn = document.getElementById("btnConnectionToggle");
+        const toggleTxt = document.getElementById("connectionToggleText");
 
         dot.className = "status-dot";
         if (state === "connected") {
             dot.classList.add("connected");
             txt.innerText = "Listening";
+            if (toggleBtn) {
+                toggleBtn.classList.remove("disconnected");
+                toggleTxt.innerText = "Disconnect Relay";
+            }
         } else if (state === "connecting") {
             txt.innerText = "Connecting...";
         } else if (state === "error") {
             txt.innerText = "Error";
         } else {
             txt.innerText = "Offline";
+            if (toggleBtn) {
+                toggleBtn.classList.add("disconnected");
+                toggleTxt.innerText = "Connect Relay";
+            }
         }
     }
 
@@ -581,8 +751,9 @@
         }
     }
 
-    // Initialize Connection on start
+    // Initialize Settings UI and Connection on start
     window.onload = () => {
+        loadNostrSettingsInUI();
         initNostrConnection();
     };
   </script>
