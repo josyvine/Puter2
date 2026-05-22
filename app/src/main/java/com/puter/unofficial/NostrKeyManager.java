@@ -16,10 +16,13 @@ import java.security.Security;
  * Responsible for generating Secp256k1 keypairs compatible with the 
  * decentralized Nostr protocol (BIP-340 Schnorr signatures).
  * Ensures Y-coordinate parity check to produce valid BIP-340 keys.
+ * Updated to natively support Bech32 NIP-19 encoding for compatible extensions.
  */
 public class NostrKeyManager {
 
     private static final String TAG = "Puter_KeyManager";
+    private static final String BECH32_ALPHABET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+    private static final int[] BECH32_GENERATOR = {0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3};
 
     static {
         // Register BouncyCastle as a security provider for Elliptic Curve operations
@@ -29,9 +32,9 @@ public class NostrKeyManager {
 
     /**
      * Generates a new 32-byte private key and its corresponding 32-byte 
-     * x-only public key.
+     * x-only public key, returning them as Bech32-encoded NIP-19 strings.
      * 
-     * @return String array: [0] = Private Key (Hex), [1] = Public Key (Hex)
+     * @return String array: [0] = Private Key (Bech32 nsec), [1] = Public Key (Bech32 npub)
      */
     public static String[] generateKeyPair() {
         try {
@@ -78,21 +81,142 @@ public class NostrKeyManager {
                 rawPrivKey = paddedPrivKey;
             }
 
-            // 7. Convert keys to Hexadecimal strings
-            String privateKeyHex = bytesToHex(rawPrivKey);
-            String publicKeyHex = bytesToHex(publicKeyBytes);
+            // 7. Convert raw keys natively to BIP-19 compliant Bech32 formats
+            String privateKeyBech32 = bech32Encode("nsec", rawPrivKey);
+            String publicKeyBech32 = bech32Encode("npub", publicKeyBytes);
 
-            // 8. STRICT NORMALIZATION: Ensure strings are exactly 64 characters
-            privateKeyHex = normalizeHex(privateKeyHex, 64);
-            publicKeyHex = normalizeHex(publicKeyHex, 64);
-
-            Log.i(TAG, "Identity Generation Success. PubKey: " + publicKeyHex);
-            return new String[]{privateKeyHex, publicKeyHex};
+            Log.i(TAG, "Identity Generation Success. PubKey: " + publicKeyBech32);
+            return new String[]{privateKeyBech32, publicKeyBech32};
 
         } catch (Exception e) {
             Log.e(TAG, "Cryptographic failure during key generation: " + e.getMessage());
             throw new RuntimeException("Identity Generation Failed: " + e.getMessage(), e);
         }
+    }
+
+    // ==========================================
+    // NATIVE BECH32 ENCODER AND DECODER ENGINE
+    // ==========================================
+
+    /**
+     * Encodes raw byte data to Bech32 format with a given human-readable prefix.
+     */
+    public static String bech32Encode(String hrp, byte[] data) {
+        byte[] converted = convertBits(data, 8, 5, true);
+        byte[] checksum = bech32CreateChecksum(hrp, converted);
+        byte[] combined = new byte[converted.length + checksum.length];
+        System.arraycopy(converted, 0, combined, 0, converted.length);
+        System.arraycopy(checksum, 0, combined, converted.length, checksum.length);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(hrp).append('1');
+        for (byte b : combined) {
+            sb.append(BECH32_ALPHABET.charAt(b));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Decodes a Bech32 string to raw bytes and verifies its human-readable prefix.
+     */
+    public static byte[] bech32Decode(String bechString, String expectedHrp) {
+        int separatorIndex = bechString.lastIndexOf('1');
+        if (separatorIndex == -1) {
+            throw new IllegalArgumentException("Invalid Bech32 formatting: Missing separator character '1'.");
+        }
+        String hrp = bechString.substring(0, separatorIndex);
+        if (!hrp.equals(expectedHrp)) {
+            throw new IllegalArgumentException("HRP mismatch: Expected prefix '" + expectedHrp + "', got '" + hrp + "'.");
+        }
+
+        String dataString = bechString.substring(separatorIndex + 1);
+        byte[] data = new byte[dataString.length()];
+        for (int i = 0; i < dataString.length(); i++) {
+            int charIndex = BECH32_ALPHABET.indexOf(dataString.charAt(i));
+            if (charIndex == -1) {
+                throw new IllegalArgumentException("Bech32 contains prohibited structures at character: " + dataString.charAt(i));
+            }
+            data[i] = (byte) charIndex;
+        }
+
+        if (!bech32VerifyChecksum(hrp, data)) {
+            throw new IllegalArgumentException("Invalid Bech32 checksum verification failed.");
+        }
+
+        byte[] values = new byte[data.length - 6];
+        System.arraycopy(data, 0, values, 0, values.length);
+        return convertBits(values, 5, 8, false);
+    }
+
+    private static int bech32Polymod(byte[] values) {
+        int chk = 1;
+        for (byte value : values) {
+            int top = chk >> 25;
+            chk = ((chk & 0x1ffffff) << 5) ^ (value & 0xff);
+            for (int i = 0; i < 5; i++) {
+                if (((top >> i) & 1) != 0) {
+                    chk ^= BECH32_GENERATOR[i];
+                }
+            }
+        }
+        return chk;
+    }
+
+    private static byte[] bech32HrpExpand(String hrp) {
+        int len = hrp.length();
+        byte[] ret = new byte[len * 2 + 1];
+        for (int i = 0; i < len; i++) {
+            char c = hrp.charAt(i);
+            ret[i] = (byte) (c >> 5);
+            ret[len + 1 + i] = (byte) (c & 31);
+        }
+        ret[len] = 0;
+        return ret;
+    }
+
+    private static byte[] bech32CreateChecksum(String hrp, byte[] data) {
+        byte[] hrpExpanded = bech32HrpExpand(hrp);
+        byte[] values = new byte[hrpExpanded.length + data.length + 6];
+        System.arraycopy(hrpExpanded, 0, values, 0, hrpExpanded.length);
+        System.arraycopy(data, 0, values, hrpExpanded.length, data.length);
+        int polymod = bech32Polymod(values) ^ 1;
+        byte[] ret = new byte[6];
+        for (int i = 0; i < 6; i++) {
+            ret[i] = (byte) ((polymod >> (5 * (5 - i))) & 31);
+        }
+        return ret;
+    }
+
+    private static boolean bech32VerifyChecksum(String hrp, byte[] data) {
+        byte[] hrpExpanded = bech32HrpExpand(hrp);
+        byte[] values = new byte[hrpExpanded.length + data.length];
+        System.arraycopy(hrpExpanded, 0, values, 0, hrpExpanded.length);
+        System.arraycopy(data, 0, values, hrpExpanded.length, data.length);
+        return bech32Polymod(values) == 1;
+    }
+
+    private static byte[] convertBits(byte[] data, int fromBits, int toBits, boolean pad) {
+        int acc = 0;
+        int bits = 0;
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        int maxv = (1 << toBits) - 1;
+        for (byte b : data) {
+            int value = b & 0xff;
+            acc = (acc << fromBits) | value;
+            bits += fromBits;
+            while (bits >= toBits) {
+                bits -= toBits;
+                out.write((acc >> bits) & maxv);
+            }
+        }
+        if (pad) {
+            if (bits > 0) {
+                out.write((acc << (toBits - bits)) & maxv);
+            }
+        } else if (bits >= fromBits || ((acc << (toBits - bits)) & maxv) != 0) {
+            throw new IllegalArgumentException("Could not convert bits cleanly due to leftover unaligned bits.");
+        }
+        return out.toByteArray();
     }
 
     /**
