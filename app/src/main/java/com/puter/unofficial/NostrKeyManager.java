@@ -16,7 +16,7 @@ import java.security.Security;
  * Responsible for generating Secp256k1 keypairs compatible with the 
  * decentralized Nostr protocol (BIP-340 Schnorr signatures).
  * Ensures Y-coordinate parity check to produce valid BIP-340 keys.
- * Updated to natively support Bech32 NIP-19 encoding for compatible extensions.
+ * Updated to natively support Bech32 NIP-19 encoding and BIP-340 Schnorr signing.
  */
 public class NostrKeyManager {
 
@@ -91,6 +91,115 @@ public class NostrKeyManager {
         } catch (Exception e) {
             Log.e(TAG, "Cryptographic failure during key generation: " + e.getMessage());
             throw new RuntimeException("Identity Generation Failed: " + e.getMessage(), e);
+        }
+    }
+
+    // ==========================================
+    // BIP-340 SCHNORR SIGNATURE GENERATION ENGINE
+    // ==========================================
+
+    /**
+     * BIP-340 Tagged Hash helper.
+     * Computes SHA256(SHA256(tag) || SHA256(tag) || data)
+     */
+    public static byte[] taggedHash(String tag, byte[] data) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] tagBytes = tag.getBytes("UTF-8");
+            byte[] tagHash = digest.digest(tagBytes);
+            byte[] combined = new byte[tagHash.length * 2 + data.length];
+            System.arraycopy(tagHash, 0, combined, 0, tagHash.length);
+            System.arraycopy(tagHash, 0, combined, tagHash.length, tagHash.length);
+            System.arraycopy(data, 0, combined, tagHash.length * 2, data.length);
+            return digest.digest(combined);
+        } catch (Exception e) {
+            throw new RuntimeException("SHA-256 generation failed in taggedHash", e);
+        }
+    }
+
+    /**
+     * BIP-340 Schnorr Signature Generation (for 32-byte message hashes).
+     *
+     * @param privateKeyBytes 32-byte raw private key
+     * @param messageBytes 32-byte message hash (e.g. Nostr event ID)
+     * @return 64-byte signature array (R_x || s)
+     */
+    public static byte[] signBIP340(byte[] privateKeyBytes, byte[] messageBytes) {
+        try {
+            X9ECParameters params = CustomNamedCurves.getByName("secp256k1");
+            BigInteger n = params.getN();
+            BigInteger d = new BigInteger(1, privateKeyBytes);
+            if (d.compareTo(BigInteger.ZERO) == 0 || d.compareTo(n) >= 0) {
+                throw new IllegalArgumentException("Key exceeds coordinate bounds.");
+            }
+
+            // Compute Public Point P = d * G
+            ECPoint P = params.getG().multiply(d).normalize();
+            if (P.getAffineYCoord().toBigInteger().testBit(0)) {
+                d = n.subtract(d); // Negate private key if public point coordinate y is odd
+                P = params.getG().multiply(d).normalize();
+            }
+
+            byte[] pubKeyXBytes = P.getAffineXCoord().getEncoded();
+            if (pubKeyXBytes.length > 32) {
+                byte[] tmp = new byte[32];
+                System.arraycopy(pubKeyXBytes, pubKeyXBytes.length - 32, tmp, 0, 32);
+                pubKeyXBytes = tmp;
+            }
+
+            // Generate deterministic nonce k using BIP-340 tagged hash of (d || m)
+            byte[] combinedInput = new byte[32 + 32];
+            System.arraycopy(privateKeyBytes, 0, combinedInput, 0, 32);
+            System.arraycopy(messageBytes, 0, combinedInput, 32, 32);
+
+            byte[] nonceHash = taggedHash("BIP0340/nonce", combinedInput);
+            BigInteger k = new BigInteger(1, nonceHash).mod(n);
+            if (k.compareTo(BigInteger.ZERO) == 0) {
+                k = BigInteger.ONE;
+            }
+
+            // Compute commitment point R = k * G
+            ECPoint R = params.getG().multiply(k).normalize();
+            if (R.getAffineYCoord().toBigInteger().testBit(0)) {
+                k = n.subtract(k); // Negate nonce coordinate if R y is odd
+                R = params.getG().multiply(k).normalize();
+            }
+
+            byte[] rBytes = R.getAffineXCoord().getEncoded();
+            if (rBytes.length > 32) {
+                byte[] tmp = new byte[32];
+                System.arraycopy(rBytes, rBytes.length - 32, tmp, 0, 32);
+                rBytes = tmp;
+            }
+
+            // Compute challenge hash e = tagged_hash("BIP0340/challenge", R_x || P_x || m)
+            byte[] challengeInput = new byte[32 + 32 + 32];
+            System.arraycopy(rBytes, 0, challengeInput, 0, 32);
+            System.arraycopy(pubKeyXBytes, 0, challengeInput, 32, 32);
+            System.arraycopy(messageBytes, 0, challengeInput, 64, 32);
+
+            byte[] eHash = taggedHash("BIP0340/challenge", challengeInput);
+            BigInteger e = new BigInteger(1, eHash).mod(n);
+
+            // Compute s parameter: s = (k + e * d) % n
+            BigInteger s = k.add(e.multiply(d)).mod(n);
+            byte[] sBytes = s.toByteArray();
+            byte[] cleanSBytes = new byte[32];
+            if (sBytes.length > 32) {
+                System.arraycopy(sBytes, sBytes.length - 32, cleanSBytes, 0, 32);
+            } else {
+                System.arraycopy(sBytes, 0, cleanSBytes, 32 - sBytes.length, sBytes.length);
+            }
+
+            // Combine R_x and s to form 64-byte signature
+            byte[] signature = new byte[64];
+            System.arraycopy(rBytes, 0, signature, 0, 32);
+            System.arraycopy(cleanSBytes, 0, signature, 32, 32);
+
+            return signature;
+        } catch (Exception e) {
+            Log.e(TAG, "BIP-340 signing failed: " + e.getMessage());
+            throw new RuntimeException("Signing failed", e);
         }
     }
 
