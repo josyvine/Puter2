@@ -158,6 +158,67 @@
     }
 
     /* =========================================================================
+     * NEW: OPERATIONAL MODE SELECTOR CARD STYLING
+     * ========================================================================= */
+    .mode-card {
+      width: 90%;
+      max-width: 500px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 15px;
+      margin-top: 20px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .mode-header {
+      font-size: 12px;
+      font-weight: bold;
+      color: #555;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 6px;
+    }
+
+    .mode-buttons {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #fdfdfd;
+      font-weight: bold;
+      font-size: 13px;
+      color: #555;
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
+      outline: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .mode-btn.active {
+      background-color: #1a73e8;
+      color: white;
+      border-color: #1a73e8;
+    }
+
+    .mode-btn:active {
+      opacity: 0.8;
+    }
+
+    /* =========================================================================
      * NOSTR HANDSHAKE SETTINGS CARD (ELEGANT INTEGRATION)
      * ========================================================================= */
     .settings-card {
@@ -373,6 +434,19 @@
       <input type="text" id="portalAddressInput" placeholder="Enter web address or search query..." onkeydown="handlePortalKey(event)">
       <button class="search-btn" onclick="navigatePortalAddress()">
         <span class="material-symbols-outlined">arrow_forward</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Operational Mode Selector Card (Instruction Four) -->
+  <div class="mode-card">
+    <div class="mode-header">Operational Mode Selector</div>
+    <div class="mode-buttons">
+      <button id="btnManualMode" class="mode-btn active" onclick="setOperationalMode(false)">
+        <span class="material-symbols-outlined" style="font-size: 18px;">touch_app</span> Manual Mode
+      </button>
+      <button id="btnAutoMode" class="mode-btn" onclick="setOperationalMode(true)">
+        <span class="material-symbols-outlined" style="font-size: 18px;">bolt</span> Auto Mode
       </button>
     </div>
   </div>
@@ -809,10 +883,63 @@
         }
     }
 
+    // =========================================================================
+    // NATIVE OPERATIONAL MODE SYNCHRONIZATION AND STATE CHANGERS
+    // =========================================================================
+
+    /**
+     * Active click handler mapped directly to the segmented mode selector card.
+     * Sets the saved preference in native SharedPreferences on the fly.
+     * Requirement: Instruction Two and Four
+     */
+    function setOperationalMode(isAuto) {
+        if (!window.AndroidInterface) return;
+        try {
+            window.AndroidInterface.setAutoMode(isAuto);
+            updateOperationalModeUI(isAuto);
+            window.AndroidInterface.showToast("Switched system mode to: " + (isAuto ? "Auto Mode" : "Manual Mode"));
+            window.AndroidInterface.nativeLog("browser.html: Operational preference updated natively.", "info");
+        } catch (e) {
+            window.AndroidInterface.logHtmlGlitch("browser.html", "Failed to write operational preference: " + e.message);
+        }
+    }
+
+    /**
+     * Synchronizes active CSS class highlights of the selector buttons
+     * based on active state parameters.
+     */
+    function updateOperationalModeUI(isAuto) {
+        const btnAuto = document.getElementById("btnAutoMode");
+        const btnManual = document.getElementById("btnManualMode");
+
+        if (isAuto) {
+            btnAuto.classList.add("active");
+            btnManual.classList.remove("active");
+        } else {
+            btnAuto.classList.remove("active");
+            btnManual.classList.add("active");
+        }
+    }
+
+    /**
+     * Queries the native backend to align UI buttons on page start.
+     */
+    function syncOperationalModeOnLoad() {
+        if (!window.AndroidInterface) return;
+        try {
+            const isAuto = window.AndroidInterface.getAutoMode();
+            updateOperationalModeUI(isAuto);
+            window.AndroidInterface.nativeLog("browser.html: Synchronized state with SharedPreferences.", "info");
+        } catch (e) {
+            window.AndroidInterface.logHtmlGlitch("browser.html", "Failed to query operational mode state: " + e.message);
+        }
+    }
+
     // Initialize Settings UI and Connection on start
     window.onload = () => {
         loadNostrSettingsInUI();
         initNostrConnection();
+        syncOperationalModeOnLoad(); // Instantly aligns buttons based on local save state
     };
   </script>
 </body>
