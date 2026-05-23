@@ -417,6 +417,68 @@ public class WebAppInterface {
              .apply();
     }
 
+    /**
+     * NEW: State setter for operational mode (Auto Mode vs Manual Mode)
+     * Requirement: Instruction Two and Six
+     */
+    @JavascriptInterface
+    public void setAutoMode(boolean enabled) {
+        prefs.edit().putBoolean(AppConstants.KEY_AUTO_MODE, enabled).apply();
+        nativeLog("Bridge: Set Operational Mode -> " + (enabled ? "AUTO" : "MANUAL"), "native");
+    }
+
+    /**
+     * NEW: State getter for operational mode (Auto Mode vs Manual Mode)
+     * Requirement: Instruction Two and Six
+     */
+    @JavascriptInterface
+    public boolean getAutoMode() {
+        boolean autoMode = prefs.getBoolean(AppConstants.KEY_AUTO_MODE, false);
+        nativeLog("Bridge: Querying Operational Mode -> " + (autoMode ? "AUTO" : "MANUAL"), "info");
+        return autoMode;
+    }
+
+    /**
+     * NEW: Native signature generation method for search query events.
+     * Signs the generated event ID natively using secp256k1/BIP-340 Schnorr signatures.
+     * Requirement: Instruction Two and Six
+     */
+    @JavascriptInterface
+    public String signNostrEvent(String eventJson) {
+        try {
+            nativeLog("Bridge: Requested signing of Nostr event JSON.", "native");
+            org.json.JSONObject obj = new org.json.JSONObject(eventJson);
+            String idHex = obj.optString("id");
+            if (idHex == null || idHex.isEmpty()) {
+                throw new IllegalArgumentException("Nostr event JSON is missing 'id' field.");
+            }
+
+            // Get saved nsec private key from SharedPreferences
+            String nsec = prefs.getString(AppConstants.KEY_NOSTR_PRIVATE_KEY, null);
+            if (nsec == null || nsec.isEmpty()) {
+                throw new IllegalStateException("Nostr private key (nsec) is missing from device storage.");
+            }
+
+            // Decode the nsec (Bech32 format) to extract the raw 32-byte private key
+            byte[] privateKeyBytes = NostrKeyManager.bech32Decode(nsec.trim(), "nsec");
+
+            // Convert event ID hex string directly to its 32-byte raw array representation
+            byte[] idBytes = NostrKeyManager.hexToBytes(idHex.trim());
+
+            // Perform cryptographic BIP-340 Schnorr signing natively
+            byte[] signatureBytes = NostrKeyManager.signBIP340(privateKeyBytes, idBytes);
+
+            // Convert result array to hex representation
+            String sigHex = NostrKeyManager.bytesToHex(signatureBytes);
+            nativeLog("Bridge: Nostr event signed successfully. Sig: " + sigHex.substring(0, 8) + "...", "native");
+            return sigHex;
+        } catch (Exception e) {
+            Log.e("WebAppInterface", "Nostr event signing failed", e);
+            nativeLog("Nostr event signing failed: " + e.getMessage(), "error");
+            return "";
+        }
+    }
+
     // --- NEW WEB SCRAPER ENGINE INTERFACES ---
 
     /**
