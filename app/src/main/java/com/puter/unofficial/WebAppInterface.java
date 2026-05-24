@@ -105,6 +105,19 @@ public class WebAppInterface {
     }
 
     /**
+     * Utility method to safely escape string sequences for JavaScript evaluations.
+     * Prevents syntax errors caused by double quotes, single quotes, backslashes, and raw newlines.
+     */
+    private String escapeJsString(String str) {
+        if (str == null) return "";
+        return str.replace("\\", "\\\\")
+                  .replace("'", "\\'")
+                  .replace("\"", "\\\"")
+                  .replace("\n", "\\n")
+                  .replace("\r", "\\r");
+    }
+
+    /**
      * Diagnostic method to pipe Java-side logs into the Floating Debug Console.
      * This helps identify why login fails by showing Java events in the JS timeline.
      * UPDATED: Now also writes the log natively to our daily public documents file.
@@ -112,7 +125,7 @@ public class WebAppInterface {
     @JavascriptInterface
     public void nativeLog(String message, String type) {
         if (webView != null) {
-            String safeMsg = message.replace("'", "\\'");
+            String safeMsg = escapeJsString(message);
             webView.post(() -> {
                 // Interacts with window.addPuterLog inside debug_console.js
                 webView.evaluateJavascript("if(window.addPuterLog){ window.addPuterLog('[JAVA] " + safeMsg + "', '" + type + "'); }", null);
@@ -742,7 +755,7 @@ public class WebAppInterface {
         ActionReportLogger.logHtmlGlitch(component, glitchDetails);
         Log.e("PuterHtmlGlitch", "[" + component + "] " + glitchDetails);
         if (webView != null) {
-            String safeMsg = ("[" + component + "] " + glitchDetails).replace("'", "\\'");
+            String safeMsg = escapeJsString("[" + component + "] " + glitchDetails);
             webView.post(() -> {
                 webView.evaluateJavascript("if(window.addNativeLogToConsole){ window.addNativeLogToConsole('[JAVA_GLITCH] " + safeMsg + "', 'error'); }", null);
             });
@@ -759,7 +772,7 @@ public class WebAppInterface {
         ActionReportLogger.logLogicViolation(type, details);
         Log.e("PuterLogicViolation", "[" + type + "] " + details);
         if (webView != null) {
-            String safeMsg = ("[" + type + "] " + details).replace("'", "\\'");
+            String safeMsg = escapeJsString("[" + type + "] " + details);
             webView.post(() -> {
                 webView.evaluateJavascript("if(window.addNativeLogToConsole){ window.addNativeLogToConsole('[JAVA_VIOLATION] " + safeMsg + "', 'warning'); }", null);
             });
