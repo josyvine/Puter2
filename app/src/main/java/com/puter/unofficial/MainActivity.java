@@ -43,6 +43,7 @@ import java.util.List;
  * 
  * UPDATED: Fixed File Picker logic to ensure Bridge-initiated uploads 
  * are converted to Base64 and sent to the stagedFiles UI.
+ * UPDATED: Integrated runtime POST_NOTIFICATIONS check and startForegroundService.
  */
 public class MainActivity extends AppCompatActivity {
 
@@ -390,6 +391,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
+     * Launches the QueryWatcherService safely using ContextCompat.
+     */
+    private void startWatcherService() {
+        try {
+            Intent serviceIntent = new Intent(this, QueryWatcherService.class);
+            ContextCompat.startForegroundService(this, serviceIntent);
+            Log.d("MainActivity", "QueryWatcherService background monitor started successfully.");
+        } catch (Exception e) {
+            Log.e("MainActivity", "Fatal failure starting QueryWatcherService background execution: ", e);
+        }
+    }
+
+    /**
      * Validates and requests all necessary hardware permissions.
      */
     private void checkAndRequestPermissions() {
@@ -400,6 +414,8 @@ public class MainActivity extends AppCompatActivity {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             listPermissionsNeeded.add(Manifest.permission.READ_MEDIA_IMAGES);
+            // REQUIREMENT: Check and Request system notifications permissions on Android 13+
+            listPermissionsNeeded.add(Manifest.permission.POST_NOTIFICATIONS);
         } else {
             listPermissionsNeeded.add(Manifest.permission.READ_EXTERNAL_STORAGE);
             listPermissionsNeeded.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
@@ -414,6 +430,9 @@ public class MainActivity extends AppCompatActivity {
 
         if (!remainingPermissions.isEmpty()) {
             ActivityCompat.requestPermissions(this, remainingPermissions.toArray(new String[0]), PERMISSION_REQUEST_CODE);
+        } else {
+            // All permission constraints already satisfied; launch the query watcher service immediately
+            startWatcherService();
         }
     }
 
@@ -422,14 +441,24 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
             boolean allGranted = true;
-            for (int result : grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) {
+            boolean notificationPermissionGranted = true;
+
+            for (int i = 0; i < permissions.length; i++) {
+                if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
                     allGranted = false;
-                    break;
+                    if (Manifest.permission.POST_NOTIFICATIONS.equals(permissions[i])) {
+                        notificationPermissionGranted = false;
+                    }
                 }
             }
+
             if (!allGranted) {
                 Toast.makeText(this, "Voice and Image features require permissions.", Toast.LENGTH_SHORT).show();
+            }
+
+            // Start foreground watcher service safely once notification permissions are resolved or on older devices
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || notificationPermissionGranted) {
+                startWatcherService();
             }
         }
     }
