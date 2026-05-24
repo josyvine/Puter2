@@ -72,6 +72,11 @@ public class AppConstants {
     public static final String TAG_VOICE = "PuterVoice";
     public static final String TAG_WEBVIEW = "PuterWebView";
 
+    // --- WATCHER SERVICE CONFIGURATION ---
+    public static final int WATCHER_NOTIFICATION_ID = 1002;
+    public static final String WATCHER_CHANNEL_ID = "puter_watcher_channel";
+    public static final String WATCHER_CHANNEL_NAME = "Puter Query Watcher";
+
     /**
      * Private constructor to prevent instantiation of a constant utility class.
      */
