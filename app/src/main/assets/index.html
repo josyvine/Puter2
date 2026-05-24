@@ -829,7 +829,7 @@
         }
     }
 
-    /* --- FIX #2: PERSISTENT USAGE TELEMETRY COMPILER --- */
+    /* --- FIX #2: PERSISTENT USAGE TELEMETRY UPDATER --- */
     function updateUsageUI(usage) {
         if(!usage) return;
         const totalTokens = usage.total_tokens || (usage.prompt_tokens + usage.completion_tokens) || 0;
@@ -1013,7 +1013,7 @@
                 if(imgBlock) imgSrc = imgBlock.image_url.url;
             }
 
-            if(imgSrc) renderImage(imgSrc);
+            if(imgSrc) renderImage(src);
             else appendChat("Bot", "Error: Recognized image data not found in response.");
 
         } else {
@@ -2114,3 +2114,4 @@
   </script>
 </body>
 </html>
+
