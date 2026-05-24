@@ -81,6 +81,20 @@ public class WebAppInterface {
     }
 
     /**
+     * Helper to safely escape JavaScript parameters to avoid script execution failures.
+     */
+    private String escapeJsString(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("\\", "\\\\")
+                    .replace("'", "\\'")
+                    .replace("\"", "\\\"")
+                    .replace("\n", "\\n")
+                    .replace("\r", "\\r");
+    }
+
+    /**
      * Setup listener to notify JavaScript when the AI finishes speaking.
      */
     private void setupTtsProgressListener() {
@@ -105,19 +119,6 @@ public class WebAppInterface {
     }
 
     /**
-     * Utility method to safely escape string sequences for JavaScript evaluations.
-     * Prevents syntax errors caused by double quotes, single quotes, backslashes, and raw newlines.
-     */
-    private String escapeJsString(String str) {
-        if (str == null) return "";
-        return str.replace("\\", "\\\\")
-                  .replace("'", "\\'")
-                  .replace("\"", "\\\"")
-                  .replace("\n", "\\n")
-                  .replace("\r", "\\r");
-    }
-
-    /**
      * Diagnostic method to pipe Java-side logs into the Floating Debug Console.
      * This helps identify why login fails by showing Java events in the JS timeline.
      * UPDATED: Now also writes the log natively to our daily public documents file.
@@ -125,12 +126,12 @@ public class WebAppInterface {
     @JavascriptInterface
     public void nativeLog(String message, String type) {
         if (webView != null) {
-            String safeMsg = escapeJsString(message);
+            String escapedMsg = escapeJsString(message);
             webView.post(() -> {
                 // Interacts with window.addPuterLog inside debug_console.js
-                webView.evaluateJavascript("if(window.addPuterLog){ window.addPuterLog('[JAVA] " + safeMsg + "', '" + type + "'); }", null);
+                webView.evaluateJavascript("if(window.addPuterLog){ window.addPuterLog('[JAVA] " + escapedMsg + "', '" + type + "'); }", null);
                 // Interacts with window.addNativeLogToConsole inside browser.html
-                webView.evaluateJavascript("if(window.addNativeLogToConsole){ window.addNativeLogToConsole('[JAVA] " + safeMsg + "', '" + type + "'); }", null);
+                webView.evaluateJavascript("if(window.addNativeLogToConsole){ window.addNativeLogToConsole('[JAVA] " + escapedMsg + "', '" + type + "'); }", null);
             });
         }
         // Also keep a record in Android Logcat for GitHub Workflow log analysis
@@ -755,9 +756,9 @@ public class WebAppInterface {
         ActionReportLogger.logHtmlGlitch(component, glitchDetails);
         Log.e("PuterHtmlGlitch", "[" + component + "] " + glitchDetails);
         if (webView != null) {
-            String safeMsg = escapeJsString("[" + component + "] " + glitchDetails);
+            String escapedMsg = escapeJsString("[" + component + "] " + glitchDetails);
             webView.post(() -> {
-                webView.evaluateJavascript("if(window.addNativeLogToConsole){ window.addNativeLogToConsole('[JAVA_GLITCH] " + safeMsg + "', 'error'); }", null);
+                webView.evaluateJavascript("if(window.addNativeLogToConsole){ window.addNativeLogToConsole('" + escapedMsg + "', 'error'); }", null);
             });
         }
     }
@@ -772,9 +773,9 @@ public class WebAppInterface {
         ActionReportLogger.logLogicViolation(type, details);
         Log.e("PuterLogicViolation", "[" + type + "] " + details);
         if (webView != null) {
-            String safeMsg = escapeJsString("[" + type + "] " + details);
+            String escapedMsg = escapeJsString("[" + type + "] " + details);
             webView.post(() -> {
-                webView.evaluateJavascript("if(window.addNativeLogToConsole){ window.addNativeLogToConsole('[JAVA_VIOLATION] " + safeMsg + "', 'warning'); }", null);
+                webView.evaluateJavascript("if(window.addNativeLogToConsole){ window.addNativeLogToConsole('" + escapedMsg + "', 'warning'); }", null);
             });
         }
     }
