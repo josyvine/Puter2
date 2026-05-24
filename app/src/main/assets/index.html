@@ -1816,6 +1816,7 @@
     async function executeAutoModeQuery(fromVoice, queryText) {
         const queryTimestamp = Math.floor(Date.now() / 1000);
         const input = document.getElementById('puterChatInput');
+        let wakeupGuardTimeout; // Define in local outer scope to prevent execution reference boundary errors
 
         // Clean user input textarea immediately
         input.value = "";
@@ -1894,6 +1895,9 @@
             const socketTimeout = setTimeout(() => {
                 if (tempSocket.readyState === WebSocket.CONNECTING || tempSocket.readyState === WebSocket.OPEN) {
                     tempSocket.close();
+                }
+                if (wakeupGuardTimeout) {
+                    clearTimeout(wakeupGuardTimeout);
                 }
                 window.AndroidInterface.nativeLog("Watchdog timeout triggered. Checking query inbox natively...", "warning");
                 updateLoaderCardText(loaderId, "Fetching from query inbox...");
@@ -1978,6 +1982,17 @@
                     sig: sig
                 };
 
+                // NEW: Establish the 5-second lazy wake-up guard right before we publish the event.
+                // If Kiwi is already awake, it catches the event and responds silently within 5s.
+                // If Kiwi is asleep, this timer expires and signals the native bridge to wake it up on demand.
+                wakeupGuardTimeout = setTimeout(() => {
+                    if (window.AndroidInterface && window.AndroidInterface.wakeUpKiwi) {
+                        window.AndroidInterface.nativeLog("Extension connection check failed (5s elapsed). Dispatching native wake-up...", "warning");
+                        updateLoaderCardText(loaderId, "Extension sleeping. Waking up Kiwi Browser...");
+                        window.AndroidInterface.wakeUpKiwi(queryText);
+                    }
+                }, 5000);
+
                 // Publish Event
                 tempSocket.send(JSON.stringify(["EVENT", signedEvent]));
                 window.AndroidInterface.nativeLog("Signed query published successfully. ID: " + eventId, "native");
@@ -2007,6 +2022,12 @@
                                 return; // Discard historical replay, keep socket and watchdog running
                             }
 
+                            // SUCCESS: Clear the lazy wake-up guard immediately before triggering RAG
+                            if (wakeupGuardTimeout) {
+                                clearTimeout(wakeupGuardTimeout);
+                                window.AndroidInterface.nativeLog("Lazy wake-up guard cleared. Extension already active.", "native");
+                            }
+
                             window.AndroidInterface.nativeLog("Genuine new live response captured [ID: " + incomingEvent.id.substring(0, 8) + "]. Clearing watchdog timer.", "native");
                             clearTimeout(socketTimeout);
 
@@ -2033,6 +2054,9 @@
             tempSocket.onerror = (err) => {
                 window.AndroidInterface.nativeLog("Relay socket experienced a network communication error.", "error");
                 clearTimeout(socketTimeout);
+                if (wakeupGuardTimeout) {
+                    clearTimeout(wakeupGuardTimeout);
+                }
                 tempSocket.close();
                 updateLoaderCardText(loaderId, "Relay socket error. Executing standard fallback...");
                 executeStandardFallback(queryText, loaderId);
@@ -2042,6 +2066,9 @@
             console.error("index.html: Auto Mode pipeline setup failure", setupError);
             if (window.AndroidInterface) {
                 window.AndroidInterface.nativeLog("Auto Mode pipeline initialization failed: " + setupError.message, "error");
+            }
+            if (wakeupGuardTimeout) {
+                clearTimeout(wakeupGuardTimeout);
             }
             updateLoaderCardText(loaderId, "Setup process failed. Executing standard fallback...");
             executeStandardFallback(queryText, loaderId);
