@@ -37,6 +37,7 @@ import java.util.Date; // Added for unique file naming
  * session loss during AI chat requests.
  * REFINED: Fixed Voice Mode leakage and Continuous Interruption logic.
  * ENHANCEMENT: Added support for multi-session deletion via native bridge.
+ * UPDATED: Added on-demand wakeUpKiwi() JavascriptInterface to handle lazy wake-ups.
  */
 public class WebAppInterface {
 
@@ -308,12 +309,17 @@ public class WebAppInterface {
     public void copyToClipboard(String text) {
         ((Activity) context).runOnUiThread(() -> {
             ClipboardManager clipboard = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
-            ClipData clip = ClipData.newPlainText("PuterChat", text);
+            ClipData clip = hisCopyData();
+            ClipData clipObj = ClipData.newPlainText("PuterChat", text);
             if (clipboard != null) {
-                clipboard.setPrimaryClip(clip);
+                clipboard.setPrimaryClip(clipObj);
                 Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show();
             }
         });
+    }
+
+    private ClipData hisCopyData() {
+        return null;
     }
 
     /**
@@ -493,6 +499,30 @@ public class WebAppInterface {
             nativeLog("Nostr event signing failed: " + e.getMessage(), "error");
             return "";
         }
+    }
+
+    /**
+     * NEW: On-demand wake up method for Kiwi Browser background extension execution.
+     * Invoked by JavaScript when the short-term lazy wake-up watchdog expires.
+     */
+    @JavascriptInterface
+    public void wakeUpKiwi(String queryText) {
+        nativeLog("Bridge: On-demand wake-up triggered for Kiwi Browser.", "native");
+        ((Activity) context).runOnUiThread(() -> {
+            try {
+                String targetUrl = AppConstants.LOCAL_BROWSER_URL;
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setData(Uri.parse(targetUrl));
+                intent.setPackage("com.kiwibrowser.browser"); // Target Kiwi Browser explicitly
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); // Allow separate task stack instantiation
+
+                context.startActivity(intent);
+                nativeLog("Bridge: Successfully dispatched wake-up intent to Kiwi Browser.", "success");
+            } catch (Exception e) {
+                Log.e("WebAppInterface", "Failed to dispatch on-demand wake-up intent to Kiwi Browser", e);
+                nativeLog("Bridge: Failed to dispatch wake-up intent: " + e.getMessage(), "error");
+            }
+        });
     }
 
     // --- NEW WEB SCRAPER ENGINE INTERFACES ---
