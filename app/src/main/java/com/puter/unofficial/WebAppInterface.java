@@ -116,6 +116,8 @@ public class WebAppInterface {
             webView.post(() -> {
                 // Interacts with window.addPuterLog inside debug_console.js
                 webView.evaluateJavascript("if(window.addPuterLog){ window.addPuterLog('[JAVA] " + safeMsg + "', '" + type + "'); }", null);
+                // Interacts with window.addNativeLogToConsole inside browser.html
+                webView.evaluateJavascript("if(window.addNativeLogToConsole){ window.addNativeLogToConsole('[JAVA] " + safeMsg + "', '" + type + "'); }", null);
             });
         }
         // Also keep a record in Android Logcat for GitHub Workflow log analysis
@@ -739,6 +741,12 @@ public class WebAppInterface {
         if (component == null || glitchDetails == null) return;
         ActionReportLogger.logHtmlGlitch(component, glitchDetails);
         Log.e("PuterHtmlGlitch", "[" + component + "] " + glitchDetails);
+        if (webView != null) {
+            String safeMsg = ("[" + component + "] " + glitchDetails).replace("'", "\\'");
+            webView.post(() -> {
+                webView.evaluateJavascript("if(window.addNativeLogToConsole){ window.addNativeLogToConsole('[JAVA_GLITCH] " + safeMsg + "', 'error'); }", null);
+            });
+        }
     }
 
     /**
@@ -750,6 +758,12 @@ public class WebAppInterface {
         if (type == null || details == null) return;
         ActionReportLogger.logLogicViolation(type, details);
         Log.e("PuterLogicViolation", "[" + type + "] " + details);
+        if (webView != null) {
+            String safeMsg = ("[" + type + "] " + details).replace("'", "\\'");
+            webView.post(() -> {
+                webView.evaluateJavascript("if(window.addNativeLogToConsole){ window.addNativeLogToConsole('[JAVA_VIOLATION] " + safeMsg + "', 'warning'); }", null);
+            });
+        }
     }
 
     /**
